@@ -155,16 +155,17 @@ class ObservationSystem:
         self.dirvectors = numpy.stack([mast.dirvectors(self.observations) for mast in self.masts])
         self.distances = vector.length(self.dirvectors)
         self.angles = vector.angle(self.dirvectors)
-        self.cells = voronoi.cells(self.observations, extent)
+        self.unitvectors = self.dirvectors / self.distances
+        self.cells = list(voronoi.cells(self.observations, extent))
         self.weights = numpy.array([cell.area for cell in self.cells])
 
     def connections_to_matrix(self, connections, weighted=False):
         connmatrix = (
-            numpy.arange(self.n_masts)[numpy.newaxis,:]
-            == connections[:,numpy.newaxis]
+            numpy.arange(self.n_masts)[:,numpy.newaxis]
+            == connections[numpy.newaxis,:]
         )
         if weighted:
-            return connmatrix * self.weights[:,numpy.newaxis]
+            return connmatrix * self.weights[numpy.newaxis,:]
         else:
             return connmatrix
         
@@ -182,7 +183,7 @@ class ObservationSystem:
 
     def plot(self, ax, network=None):
         for cell in self.cells:
-            ax.plot(*cell.exterior, color='#bbbbbb', lw=0.5)
+            ax.plot(*cell.exterior.xy, color='#bbbbbb', lw=0.5)
         if network is None:
             colors = 'b.'
         else:
@@ -195,5 +196,17 @@ class ObservationSystem:
             
 class AntennaNetworkEstimator:
     def estimate(self, system, connections):
+        raise NotImplementedError
+    
+class MeasureNetworkEstimator:
+    def estimate(self, system, connections):
         connmatrix = system.connections_to_matrix(connections, weighted=True)
         print(connmatrix)
+        # strengths assumed equal
+        strengths = numpy.ones(system.n_masts)
+        # range is mean distance of connected point from antenna
+        ranges = (system.distances * connmatrix).sum(axis=1) / connmatrix.sum(axis=1)
+        print(ranges)
+        # principal angle is mean angle of connected point from antenna
+        principal_angles = (system.angles * conn
+        
