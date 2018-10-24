@@ -168,6 +168,10 @@ class ObservationSystem:
         else:
             return connmatrix
         
+    @property
+    def n_masts(self):
+        return len(self.masts)
+        
     @classmethod
     def create(cls, network, n_observations):
         return cls(
@@ -177,6 +181,8 @@ class ObservationSystem:
         )
 
     def plot(self, ax, network=None):
+        for cell in self.cells:
+            ax.plot(*cell.exterior, color='#bbbbbb', lw=0.5)
         if network is None:
             colors = 'b.'
         else:
@@ -190,3 +196,4 @@ class ObservationSystem:
 class AntennaNetworkEstimator:
     def estimate(self, system, connections):
         connmatrix = system.connections_to_matrix(connections, weighted=True)
+        print(connmatrix)
