@@ -19,5 +19,6 @@ if __name__ == '__main__':
     obs_sys = mobilib.simul.ObservationSystem.create(net, 500)
     ax = plt.gca()
     obs_sys.plot(ax, net)
-    # net.plot(ax)
+    est = mobilib.simul.AntennaNetworkEstimator()
+    print(est.estimate(obs_sys, net.connections(system.observations)))
     plt.show()
