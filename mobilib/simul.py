@@ -17,6 +17,12 @@ class Mast:
 
 
 class Antenna:
+    PARAM_FORMAT = '{0.strength:.2f}/{0.range:.2f}@{0.principal_angle_deg:.0f}w{0.narrowness:.2f}'
+    ALL_FORMAT = (
+        '<Antenna({0.mast.location[0]:.2f},{0.mast.location[1]:.2f};'
+        + PARAM_FORMAT + ')'
+    )
+
     def __init__(self, mast, strength, range, principal_angle, narrowness, strength_sigma=0):
         self.mast = mast
         self.strength = strength
@@ -51,8 +57,11 @@ class Antenna:
         return float(numpy.degrees(self.principal_angle))
 
     def plot_annotation(self, ax):
-        label = '{0.strength:.2f}/{0.range:.2f}@{0.principal_angle_deg:.0f}w{0.narrowness:.2f}'.format(self)
+        label = self.PARAM_FORMAT.format(self)
         ax.annotate(label, xy=self.location, xytext=self.location)
+    
+    def __repr__(self):
+        return self.ALL_FORMAT.format(self)
 
 
 def generate_locations(extent, n):
@@ -143,7 +152,8 @@ class AntennaNetwork:
     def get_masts(self):
         return [antenna.mast for antenna in self.antennas]
 
-
+    def __repr__(self):
+        return repr(self.antennas)
 
 
 class ObservationSystem:
@@ -152,10 +162,13 @@ class ObservationSystem:
         self.masts = masts
         self._mast_locs = numpy.stack([mast.location for mast in self.masts])
         self.observations = observations
-        self.dirvectors = numpy.stack([mast.dirvectors(self.observations) for mast in self.masts])
+        self.dirvectors = numpy.stack([
+            mast.dirvectors(self.observations)
+            for mast in self.masts
+        ])
         self.distances = vector.length(self.dirvectors)
         self.angles = vector.angle(self.dirvectors)
-        self.unitvectors = self.dirvectors / self.distances
+        self.unitvectors = self.dirvectors / self.distances[:,:,numpy.newaxis]
         self.cells = list(voronoi.cells(self.observations, extent))
         self.weights = numpy.array([cell.area for cell in self.cells])
 
@@ -189,7 +202,10 @@ class ObservationSystem:
         else:
             connections = network.connections(self.observations)
             colors = ['C' + str(i) for i in connections]
-        ax.scatter(self.observations[:,0], self.observations[:,1], c=colors, s=5 * self.weights)
+        ax.scatter(
+            self.observations[:,0], self.observations[:,1],
+            c=colors, s=5 * self.weights
+        )
         if network is not None:
             network.plot(ax)
 
@@ -197,16 +213,44 @@ class ObservationSystem:
 class AntennaNetworkEstimator:
     def estimate(self, system, connections):
         raise NotImplementedError
+        
+    def _network_from_params(self, system, **kwargs):
+        return AntennaNetwork(system.extent, [Antenna(
+                mast=mast,
+                **{
+                    key : values[i]
+                    for key, values in kwargs.items()
+                }
+            )
+            for i, mast in enumerate(system.masts)
+        ])
     
-class MeasureNetworkEstimator:
+class MeasureNetworkEstimator(AntennaNetworkEstimator):
     def estimate(self, system, connections):
         connmatrix = system.connections_to_matrix(connections, weighted=True)
-        print(connmatrix)
+        sincossums = (
+            (system.unitvectors * connmatrix[:,:,numpy.newaxis]).sum(axis=1)
+            / connmatrix.sum(axis=1)[:,numpy.newaxis]
+        )
         # strengths assumed equal
         strengths = numpy.ones(system.n_masts)
         # range is mean distance of connected point from antenna
         ranges = (system.distances * connmatrix).sum(axis=1) / connmatrix.sum(axis=1)
-        print(ranges)
         # principal angle is mean angle of connected point from antenna
-        principal_angles = (system.angles * conn
+        princ_angles = vector.angle(sincossums)
+        narrownesses = self._estimate_kappa(vector.length(sincossums))
+        return self._network_from_params(system,
+            strength=strengths,
+            range=ranges,
+            principal_angle=princ_angles,
+            narrowness=narrownesses
+        )
+        
+    def _estimate_kappa(self, rbar, n_iter=3):
+        rbarsq = rbar ** 2 
+        kappa = rbar * (2 - rbarsq) / (1 - rbarsq)
+        for i in range(n_iter):
+            apkappa = scipy.special.iv(1, kappa) / scipy.special.iv(0, kappa)
+            kappa -= (apkappa - rbar) / (1 - apkappa ** 2 - apkappa / kappa)
+        return kappa
         
