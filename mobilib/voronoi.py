@@ -1,6 +1,7 @@
 import numpy
 import scipy.spatial
 import shapely.geometry
+import shapely.geometry.base
 import shapely.prepared
 
 
@@ -26,14 +27,16 @@ def bounds_to_limiting_generators(minx, miny, maxx, maxy):
 
 def cells(points, extent=None):
     if extent is None:
-        bounds = pointset_bounds(points)
+        bbox = pointset_bounds(points)
         extent_prep = None
     else:
-        bounds = extent.bbox
+        if not isinstance(extent, shapely.geometry.base.BaseGeometry):
+            extent = shapely.geometry.box(*extent)
+        bbox = extent.bounds
         extent_prep = shapely.prepared.prep(extent)
     boundgens = bounds_to_limiting_generators(*bbox)
     diagram = scipy.spatial.Voronoi(numpy.concatenate((points, boundgens)))
-    for reg_i in diagram.point_regions:
+    for reg_i in diagram.point_region[:-len(boundgens)]:
         coords = diagram.vertices[diagram.regions[reg_i]]
         poly = shapely.geometry.Polygon(coords)
         if extent_prep is None or extent_prep.contains(poly):

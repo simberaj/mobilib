@@ -156,7 +156,18 @@ class ObservationSystem:
         self.distances = vector.length(self.dirvectors)
         self.angles = vector.angle(self.dirvectors)
         self.cells = voronoi.cells(self.observations, extent)
+        self.weights = numpy.array([cell.area for cell in self.cells])
 
+    def connections_to_matrix(self, connections, weighted=False):
+        connmatrix = (
+            numpy.arange(self.n_masts)[numpy.newaxis,:]
+            == connections[:,numpy.newaxis]
+        )
+        if weighted:
+            return connmatrix * self.weights[:,numpy.newaxis]
+        else:
+            return connmatrix
+        
     @classmethod
     def create(cls, network, n_observations):
         return cls(
@@ -171,6 +182,11 @@ class ObservationSystem:
         else:
             connections = network.connections(self.observations)
             colors = ['C' + str(i) for i in connections]
-        ax.scatter(self.observations[:,0], self.observations[:,1], c=colors, s=9)
+        ax.scatter(self.observations[:,0], self.observations[:,1], c=colors, s=5 * self.weights)
         if network is not None:
             network.plot(ax)
+
+            
+class AntennaNetworkEstimator:
+    def estimate(self, system, connections):
+        connmatrix = system.connections_to_matrix(connections, weighted=True)
