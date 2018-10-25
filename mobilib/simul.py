@@ -172,6 +172,12 @@ class ObservationSystem:
         self.cells = list(voronoi.cells(self.observations, extent))
         self.weights = numpy.array([cell.area for cell in self.cells])
 
+    def connections(self, network):
+        return network.connections(self.observations)
+    
+    def connection_matrix(self, network, **kwargs):
+        return self.connections_to_matrix(self.connections(network), **kwargs)
+        
     def connections_to_matrix(self, connections, weighted=False):
         connmatrix = (
             numpy.arange(self.n_masts)[:,numpy.newaxis]
@@ -195,13 +201,15 @@ class ObservationSystem:
         )
 
     def plot(self, ax, network=None):
-        for cell in self.cells:
-            ax.plot(*cell.exterior.xy, color='#bbbbbb', lw=0.5)
         if network is None:
             colors = 'b.'
+            cellcolors = itertools.repeat('#bbbbbb')
         else:
             connections = network.connections(self.observations)
             colors = ['C' + str(i) for i in connections]
+            cellcolors = colors
+        for cell, color in zip(self.cells, cellcolors):
+            ax.plot(*cell.exterior.xy, color=color, lw=0.25)
         ax.scatter(
             self.observations[:,0], self.observations[:,1],
             c=colors, s=5 * self.weights
@@ -254,3 +262,18 @@ class MeasureNetworkEstimator(AntennaNetworkEstimator):
             kappa -= (apkappa - rbar) / (1 - apkappa ** 2 - apkappa / kappa)
         return kappa
         
+        
+class AdjustingNetworkEstimator(AntennaNetworkEstimator):
+    def estimate(self, system, connections):
+        connmatrix = system.connections_to_matrix(connections, weighted=True)
+        inner_estimator = MeasureNetworkEstimator()
+        estnet = inner_estimator.estimate(system, connections)
+        est_connections = estnet.connections(system.observations)
+        est_connmatrix = system.connections_to_matrix(est_connections, weighted=True)
+        prev_fit = -1
+        fit = numpy.sqrt(connmatrix * est_connmatrix).sum() / connmatrix.sum()
+        # while (fit - prev_fit) > 1e-3:
+        totweights = est_connmatrix.sum(axis=1)
+        print(totweights)
+            
+            # print(fit)
