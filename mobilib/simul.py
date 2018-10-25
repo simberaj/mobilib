@@ -59,7 +59,7 @@ class Antenna:
     def plot_annotation(self, ax):
         label = self.PARAM_FORMAT.format(self)
         ax.annotate(label, xy=self.location, xytext=self.location)
-    
+
     def __repr__(self):
         return self.ALL_FORMAT.format(self)
 
@@ -120,16 +120,35 @@ class AntennaNetwork:
         self.antennas = antennas
         self._antenna_locs = numpy.stack([antenna.location for antenna in antennas])
 
-    def connections(self, locations):
-        return self.strengths_to_connections(numpy.stack([
+    def strengths(self, locations):
+        return numpy.stack([
             antenna.strengths(locations) for antenna in self.antennas
-        ]))
-
-    def connections_from_distangles(self, distances, angles):
-        return self.strengths_to_connections(numpy.stack([
+        ])
+        
+    def strengths_from_distangles(self, distances, angles):
+        return numpy.stack([
             antenna.strengths_from_distangles(distances, angles)
             for antenna in self.antennas
-        ]))
+        ])
+        
+    def connections(self, locations):
+        return self.strengths_to_connections(self.strengths(locations))
+
+    def connections_from_distangles(self, distances, angles):
+        return self.strengths_to_connections(
+            self.strengths_from_distangles(distances, angles)
+        )
+
+    def get_parameters(self):
+        return zip(*[
+            (
+                antenna.strength,
+                antenna.range,
+                antenna.principal_angle,
+                antenna.narrowness,
+            )
+            for antenna in self.antennas
+        ])
 
     @staticmethod
     def strengths_to_connections(strengths):
@@ -172,12 +191,15 @@ class ObservationSystem:
         self.cells = list(voronoi.cells(self.observations, extent))
         self.weights = numpy.array([cell.area for cell in self.cells])
 
+    def strengths(self, network):
+        return network.strengths_from_distangles(self.distances, self.angles)
+
     def connections(self, network):
-        return network.connections(self.observations)
-    
+        return network.connections_from_distangles(self.distances, self.angles)
+
     def connection_matrix(self, network, **kwargs):
         return self.connections_to_matrix(self.connections(network), **kwargs)
-        
+
     def connections_to_matrix(self, connections, weighted=False):
         connmatrix = (
             numpy.arange(self.n_masts)[:,numpy.newaxis]
@@ -187,11 +209,11 @@ class ObservationSystem:
             return connmatrix * self.weights[numpy.newaxis,:]
         else:
             return connmatrix
-        
+
     @property
     def n_masts(self):
         return len(self.masts)
-        
+
     @classmethod
     def create(cls, network, n_observations):
         return cls(
@@ -205,7 +227,7 @@ class ObservationSystem:
             colors = 'b.'
             cellcolors = itertools.repeat('#bbbbbb')
         else:
-            connections = network.connections(self.observations)
+            connections = self.connections(network)
             colors = ['C' + str(i) for i in connections]
             cellcolors = colors
         for cell, color in zip(self.cells, cellcolors):
@@ -217,12 +239,29 @@ class ObservationSystem:
         if network is not None:
             network.plot(ax)
 
-            
+    def plot3d(self, ax, network):
+        strengths = self.strengths(network)
+        for i, antstrengths in enumerate(strengths):
+            ax.scatter(
+                self.observations[:,0],
+                self.observations[:,1],
+                antstrengths,
+                c=('C' + str(i)),
+                s=9
+            )
+
+
 class AntennaNetworkEstimator:
+    PARAM_NAMES = ['strength', 'range', 'principal_angle', 'narrowness']
+
     def estimate(self, system, connections):
         raise NotImplementedError
-        
-    def _network_from_params(self, system, **kwargs):
+
+    def _network_from_params(self, system, *args, **kwargs):
+        kwargs.update({
+            name : value
+            for name, value in zip(self.PARAM_NAMES, args)
+        })
         return AntennaNetwork(system.extent, [Antenna(
                 mast=mast,
                 **{
@@ -232,48 +271,79 @@ class AntennaNetworkEstimator:
             )
             for i, mast in enumerate(system.masts)
         ])
-    
+
+
 class MeasureNetworkEstimator(AntennaNetworkEstimator):
     def estimate(self, system, connections):
+        # strengths assumed equal
+        strengths = numpy.ones(system.n_masts)
         connmatrix = system.connections_to_matrix(connections, weighted=True)
+        params = (strengths, ) + self.calculate_parameters(system, connmatrix)
+        return self._network_from_params(system, *params)
+
+    @classmethod
+    def calculate_parameters(cls, system, connmatrix):
         sincossums = (
             (system.unitvectors * connmatrix[:,:,numpy.newaxis]).sum(axis=1)
             / connmatrix.sum(axis=1)[:,numpy.newaxis]
         )
-        # strengths assumed equal
-        strengths = numpy.ones(system.n_masts)
         # range is mean distance of connected point from antenna
         ranges = (system.distances * connmatrix).sum(axis=1) / connmatrix.sum(axis=1)
         # principal angle is mean angle of connected point from antenna
         princ_angles = vector.angle(sincossums)
-        narrownesses = self._estimate_kappa(vector.length(sincossums))
-        return self._network_from_params(system,
-            strength=strengths,
-            range=ranges,
-            principal_angle=princ_angles,
-            narrowness=narrownesses
-        )
-        
-    def _estimate_kappa(self, rbar, n_iter=3):
-        rbarsq = rbar ** 2 
+        narrownesses = cls._estimate_kappa(vector.length(sincossums))
+        return ranges, princ_angles, narrownesses
+
+    @staticmethod
+    def _estimate_kappa(rbar, n_iter=3):
+        rbarsq = rbar ** 2
         kappa = rbar * (2 - rbarsq) / (1 - rbarsq)
         for i in range(n_iter):
             apkappa = scipy.special.iv(1, kappa) / scipy.special.iv(0, kappa)
             kappa -= (apkappa - rbar) / (1 - apkappa ** 2 - apkappa / kappa)
         return kappa
-        
-        
+
+
 class AdjustingNetworkEstimator(AntennaNetworkEstimator):
+    def __init__(self, rate=0.25, tol=1e-6, maxiter=1000):
+        self.rate = rate
+        self.tol = tol
+        self.maxiter = maxiter
+
     def estimate(self, system, connections):
-        connmatrix = system.connections_to_matrix(connections, weighted=True)
-        inner_estimator = MeasureNetworkEstimator()
-        estnet = inner_estimator.estimate(system, connections)
-        est_connections = estnet.connections(system.observations)
+        measurer = MeasureNetworkEstimator()
+        true_connmatrix = system.connections_to_matrix(connections, weighted=True)
+        true_ranges, true_angles, true_kappas = measurer.calculate_parameters(system, true_connmatrix)
+        true_totweights = true_connmatrix.sum(axis=1)
+        # estimate initial guess using measurer
+        est_net = measurer.estimate(system, connections)
+        est_connections = est_net.connections(system.observations)
         est_connmatrix = system.connections_to_matrix(est_connections, weighted=True)
         prev_fit = -1
-        fit = numpy.sqrt(connmatrix * est_connmatrix).sum() / connmatrix.sum()
-        # while (fit - prev_fit) > 1e-3:
-        totweights = est_connmatrix.sum(axis=1)
-        print(totweights)
-            
-            # print(fit)
+        fit = numpy.sqrt(true_connmatrix * est_connmatrix).sum() / true_connmatrix.sum()
+        n_iter = 0
+        while (fit - prev_fit) > self.tol and n_iter <= self.maxiter:
+            print(fit)
+            est_ranges, est_angles, est_kappas = measurer.calculate_parameters(system, est_connmatrix)
+            # strength adjusted to approach the target observation weight sum
+            est_totweights = est_connmatrix.sum(axis=1)
+            diffs = self.rate * numpy.stack([
+                (true_totweights - est_totweights) / est_totweights,
+                true_ranges - est_ranges,
+                true_angles - est_angles,
+                true_kappas - est_kappas,
+            ])
+            est_net = self._network_from_params(system, *(
+                numpy.array(curparams) + paramdiffs
+                for curparams, paramdiffs in zip(
+                    est_net.get_parameters(),
+                    diffs
+                )
+            ))
+            est_connections = est_net.connections(system.observations)
+            est_connmatrix = system.connections_to_matrix(est_connections, weighted=True)
+            prev_fit = fit
+            fit = numpy.sqrt(true_connmatrix * est_connmatrix).sum() / true_connmatrix.sum()
+            n_iter += 1
+        print(fit)
+        return est_net
