@@ -127,8 +127,8 @@ class AntennaNetwork:
         
     def strengths_from_distangles(self, distances, angles):
         return numpy.stack([
-            antenna.strengths_from_distangles(distances, angles)
-            for antenna in self.antennas
+            antenna.strengths_from_distangles(dists, angs)
+            for dists, angs, antenna in zip(distances, angles, self.antennas)
         ])
         
     def connections(self, locations):
@@ -233,8 +233,10 @@ class ObservationSystem:
         for cell, color in zip(self.cells, cellcolors):
             ax.plot(*cell.exterior.xy, color=color, lw=0.25)
         ax.scatter(
-            self.observations[:,0], self.observations[:,1],
-            c=colors, s=5 * self.weights
+            self.observations[:,0],
+            self.observations[:,1],
+            c=colors,
+            s=5 * self.weights
         )
         if network is not None:
             network.plot(ax)
@@ -245,7 +247,7 @@ class ObservationSystem:
             ax.scatter(
                 self.observations[:,0],
                 self.observations[:,1],
-                antstrengths,
+                numpy.log(antstrengths),
                 c=('C' + str(i)),
                 s=9
             )

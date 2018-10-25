@@ -20,13 +20,15 @@ if __name__ == '__main__':
     net = netgener.generate((0,0,50,50), 10)
     obs_sys = mobilib.simul.ObservationSystem.create(net, 2500)
     conns = net.connections(obs_sys.observations)
-    ax = plt.gca()
-    obs_sys.plot(ax, net)
+    # ax = plt.gca()
+    # obs_sys.plot(ax, net)
+
     # est = mobilib.simul.MeasureNetworkEstimator()
     # estnet = est.estimate(obs_sys, conns)
     # plt.figure()
     # ax = plt.gca()
     # obs_sys.plot(ax, estnet)
+    
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     obs_sys.plot3d(ax, net)
@@ -36,4 +38,5 @@ if __name__ == '__main__':
     # plt.figure()
     # ax = plt.gca()
     # obs_sys.plot(ax, iestnet)
-    # plt.show()
+    
+    plt.show()
