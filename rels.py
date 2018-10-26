@@ -69,7 +69,7 @@ class HomeWorkRelationGenerator(RelationGenerator):
         
 if __name__ == '__main__':
     imps = numpy.array([3,2,2,1,1,1])
-    codes = numpy.array(['k','t','','','',''])
+    codes = numpy.array(['k','','','','',''])
     gens = [
         GeneralRelationGenerator(),
         HomeBaseRelationGenerator(),
