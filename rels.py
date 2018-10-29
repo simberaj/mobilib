@@ -17,10 +17,6 @@ class RelationGenerator:
         tsource_sum = targeted_sources.sum()
         if tsource_sum == 0:
             return numpy.zeros((n,n))
-        # print(sources)
-        # print(targeting_weight)
-        # print(weight_sum)
-        # print(targeted_sources)
         transfer = targeted_sources / (tsource_sum * numpy.where(has_targets, weight_sum, 1))
         return transfer[:,numpy.newaxis] * targeting_weight
         
@@ -48,11 +44,6 @@ class RelationGenerator:
         
 class GeneralRelationGenerator(RelationGenerator):
     pass
-    # def relate(self, importances, types, selfinter=True):
-        # rels = importances[:,numpy.newaxis] * importances[numpy.newaxis,:]
-        # if not selfinter:
-            # numpy.fill_diagonal(rels, 0)
-        # return rels / rels.sum()
 
         
 class HomeBaseRelationGenerator(RelationGenerator):
@@ -61,41 +52,6 @@ class HomeBaseRelationGenerator(RelationGenerator):
         
     def sources(self, importances, types):
         return self.type_importances(importances, types, self.home_codes)
-    
-    # def relate(self, importances, types, selfinter=True):
-        # home_imps = self.type_importances(importances, types, self.home_codes)
-        # home_sum = home_imps.sum()
-        # if home_sum == 0: # no home anchors
-            # n = len(types)
-            # return numpy.zeros((n,n))
-        # rels = (
-            # home_imps[:,numpy.newaxis] * importances[numpy.newaxis,:]
-        # ) / (
-            # # we know this is nonzero because home_sum = k * sum(imps)
-            # home_sum * importances.sum()
-        # )
-        # if not selfinter:
-            # numpy.fill_diagonal(rels, 0)
-            # normcoef = home_imps / (home_sum * rels.sum(axis=1))
-            # rels *= numpy.where(numpy.isnan(normcoef), 0, normcoef).reshape(-1, 1)
-        # return rels
-        
-        # targets = importances - home_imps
-        # rels = (
-            # home_imps[:,numpy.newaxis] * targets[numpy.newaxis,:]
-        # ) / (
-            # # we know this is nonzero because home_sum = k * sum(imps)
-            # home_sum * targets.sum()
-        # )
-        # if selfinter:
-            # himpsq = home_imps ** 2
-            # rels = (rels + numpy.diag(himpsq)) * home_imps[:,numpy.newaxis]
-        # return rels
-        # if not selfinter:
-            # numpy.fill_diagonal(rels, 0)
-            # return rels / rels.sum()
-        # else:
-            # return rels
 
 
 class HomeWorkRelationGenerator(HomeBaseRelationGenerator):
@@ -106,22 +62,6 @@ class HomeWorkRelationGenerator(HomeBaseRelationGenerator):
     def targets(self, importances, types):
         return self.type_importances(importances, types, self.work_codes)
     
-    # def relate(self, importances, types, selfinter=True):
-        # home_imps = self.type_importances(importances, types, self.home_codes)
-        # work_imps = self.type_importances(importances, types, self.work_codes)
-        # rels = (home_imps[:,numpy.newaxis] * work_imps[numpy.newaxis,:])
-        # relsum = rels.sum()
-        # if relsum == 0:
-            # # no relations - only anchors of one type, rels is all zeros
-            # if selfinter:
-                # # produce only self-interactions of homes proportional to importances
-                # home_sum = home_imps.sum()
-                # return numpy.diag(home_imps / home_sum) if home_sum else rels
-            # else:
-                # return rels
-        # else:
-            # return rels / relsum
-            
         
 if __name__ == '__main__':
     imps = numpy.array([10,2,2,1,1,1])
