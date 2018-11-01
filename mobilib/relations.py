@@ -1,5 +1,20 @@
 import numpy
 
+DEFAULT_HOME_CODE = 'k'
+DEFAULT_WORK_CODE = 't'
+DEFAULT_MULTIFX_CODE = 'm'
+
+def build_codes(main_code, sec_code, sec_fraction=.5):
+    return {main_code : 1, sec_code : sec_fraction}
+
+DEFAULT_HOME_CODES = build_codes(
+    DEFAULT_HOME_CODE,
+    DEFAULT_MULTIFX_CODE,
+)
+DEFAULT_WORK_CODES = build_codes(
+    DEFAULT_WORK_CODE,
+    DEFAULT_MULTIFX_CODE,
+)
 
 class RelationGenerator:
     def relate(self, importances, types, selfinter=True):
@@ -43,11 +58,13 @@ class RelationGenerator:
         
         
 class GeneralRelationGenerator(RelationGenerator):
-    pass
+    name = 'gen'
 
         
 class HomeBaseRelationGenerator(RelationGenerator):
-    def __init__(self, home_codes={'k' : 1, 'm' : .5}):
+    name = 'home'
+    
+    def __init__(self, home_codes=DEFAULT_HOME_CODES):
         self.home_codes = home_codes
         
     def sources(self, importances, types):
@@ -55,7 +72,9 @@ class HomeBaseRelationGenerator(RelationGenerator):
 
 
 class HomeWorkRelationGenerator(HomeBaseRelationGenerator):
-    def __init__(self, home_codes={'k' : 1, 'm' : .5}, work_codes={'t' : 1, 'm' : .5}):
+    name = 'homework'
+    
+    def __init__(self, home_codes=DEFAULT_HOME_CODES, work_codes=DEFAULT_WORK_CODES):
         self.home_codes = home_codes
         self.work_codes = work_codes
         
@@ -65,7 +84,14 @@ class HomeWorkRelationGenerator(HomeBaseRelationGenerator):
         
 if __name__ == '__main__':
     imps = numpy.array([4,2,2,1,1,1])
-    codes = numpy.array(['k','t','m','t','',''])
+    codes = numpy.array([
+        DEFAULT_HOME_CODE,
+        DEFAULT_WORK_CODE,
+        DEFAULT_MULTIFX_CODE,
+        DEFAULT_WORK_CODE,
+        '',
+        '',
+    ])
     gens = [
         GeneralRelationGenerator(),
         HomeBaseRelationGenerator(),
