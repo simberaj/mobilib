@@ -1,3 +1,6 @@
+
+import operator
+
 import numpy
 import scipy.spatial
 import shapely.geometry
@@ -46,4 +49,4 @@ def cells(points, extent=None):
 
 
 def cells_shapely(points, extent=None):
-    return voronoi_cells(numpy.array([pt.coords[0] for pt in points]))
+    return cells(numpy.array([pt.coords[0] for pt in points]))

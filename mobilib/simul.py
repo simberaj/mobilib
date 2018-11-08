@@ -8,12 +8,22 @@ import shapely.prepared
 from . import vector
 from . import voronoi
 
+
 class Mast:
     def __init__(self, location):
         self.location = numpy.array(location)
 
     def dirvectors(self, locations):
         return locations - self.location
+
+class DirectedMast(Mast):
+    def __init__(self, location, angle_deg):
+        super().__init__(location)
+        self.angle_deg = angle_deg
+        self.angle = numpy.radians(self.angle_deg)
+
+    def get_angle(self):
+        return self.angle
 
 
 class Antenna:
@@ -22,19 +32,23 @@ class Antenna:
         '<Antenna({0.mast.location[0]:.2f},{0.mast.location[1]:.2f};'
         + PARAM_FORMAT + ')'
     )
+    VAR_NAMES = NotImplemented
 
-    def __init__(self, mast, strength, range, principal_angle, narrowness, strength_sigma=0):
+    def __init__(self, mast, strength, range, narrowness, strength_sigma=0):
         self.mast = mast
         self.strength = strength
         self.strength_sigma = strength_sigma
         self.range = range
-        self.principal_angle = principal_angle
         self.narrowness = narrowness
         self._update_distros()
 
     @property
     def location(self):
         return self.mast.location
+
+    @property
+    def principal_angle_deg(self):
+        return float(numpy.degrees(self.principal_angle))
 
     def _update_distros(self):
         self._strength = scipy.stats.norm(loc=self.strength, scale=self.strength_sigma)
@@ -52,38 +66,74 @@ class Antenna:
             * self._angle.pdf(angles)
         )
 
-    @property
-    def principal_angle_deg(self):
-        return float(numpy.degrees(self.principal_angle))
-
     def plot_annotation(self, ax):
         label = self.PARAM_FORMAT.format(self)
         ax.annotate(label, xy=self.location, xytext=self.location)
+        
+    def get_parameters(self):
+        return tuple(self.__dict__[param] for param in self.VAR_NAMES)
 
     def __repr__(self):
         return self.ALL_FORMAT.format(self)
 
 
-def generate_locations(extent, n):
+class VariableAngleAntenna(Antenna):
+    VAR_NAMES = ['strength', 'range', 'narrowness', 'principal_angle']
+
+    def __init__(self, *args, **kwargs, principal_angle=0):
+        self.principal_angle = principal_angle
+        super().__init__(*args, **kwargs)
+
+
+class FixedAngleAntenna(Antenna):
+    VAR_NAMES = ['strength', 'range', 'narrowness']
+
+    @property
+    def principal_angle(self):
+        return self.mast.get_angle()
+
+
+def random_locations(extent, n):
+    return filter_by_extent(random_locations_infinite(extent), extent, n)
+
+    
+def rectgrid_locations(extent, grid_size):
+    return filter_by_extent(rectgrid_locations_all(extent), extent)
+
+    
+def filter_by_extent(generator, extent, n=numpy.inf):
     if isinstance(extent, shapely.geometry.base.BaseGeometry):
         extent = extent
     else:
         extent = shapely.geometry.box(*extent)
     extent_prep = shapely.prepared.prep(extent)
-    xlocgen, ylocgen = _create_locgens(*extent.bounds)
     locs = []
-    while len(locs) < n:
-        location = numpy.hstack([xlocgen.rvs(1), ylocgen.rvs(1)])
+    for loc in generator:
         if extent_prep.contains(shapely.geometry.Point(*location)):
             locs.append(location)
+            if len(locs) == n:
+                break
     return numpy.array(locs)
 
+    
+def random_locations_infinite(extent):
+    xmin, ymin, xmax, ymax = extent.bounds
+    xlocgen = scipy.stats.uniform(loc=xmin, scale=xmax-xmin)
+    ylocgen = scipy.stats.uniform(loc=ymin, scale=ymax-ymin)
+    while True:
+        yield numpy.hstack([xlocgen.rvs(1), ylocgen.rvs(1)])
 
-def _create_locgens(xmin, ymin, xmax, ymax):
-    return (
-        scipy.stats.uniform(loc=xmin, scale=xmax-xmin),
-        scipy.stats.uniform(loc=ymin, scale=ymax-ymin),
-    )
+        
+def rectgrid_locations_all(extent, grid_size):
+    xmin, ymin, xmax, ymax = extent.bounds
+    xeq = (xmax - xmin - ((xmax - xmin) // grid_size) * grid_size) / 2
+    yeq = (ymax - ymin - ((ymax - ymin) // grid_size) * grid_size) / 2
+    xs = numpy.arange(xmin + xeq, xmax, grid_size)
+    ys = numpy.arange(ymin + yeq, ymax, grid_size)
+    for x in xs:
+        for y in ys:
+            yield numpy.array([x,y])
+
 
 
 class NetworkGenerator:
@@ -94,25 +144,51 @@ class NetworkGenerator:
         self.range_mean = range_mean
         self.range_stdev = range_stdev
         self.narrowness_mean = narrowness_mean
-        self._generators = {
-            'strength' : scipy.stats.norm(loc=self.strength_mean, scale=self.strength_stdev),
-            'range' : scipy.stats.norm(loc=self.range_mean, scale=self.range_stdev),
-            'principal_angle' : scipy.stats.uniform(scale=2 * numpy.pi),
-            'narrowness' : scipy.stats.expon(scale=self.narrowness_mean),
-        }
+        self._strength_gen = scipy.stats.norm(loc=self.strength_mean, scale=self.strength_stdev)
+        self._range_gen = scipy.stats.norm(loc=self.range_mean, scale=self.range_stdev)
+        self._narrowness_gen = scipy.stats.expon(scale=self.narrowness_mean)
+        self._angle_gen = scipy.stats.uniform(scale=2 * numpy.pi)
 
     def generate(self, extent, n_antennas):
-        return AntennaNetwork(extent, [Antenna(
+        return AntennaNetwork(extent, list(self._generate_antennas(extent, n_antennas)))
+
+
+class VariableAngleNetworkGenerator(NetworkGenerator):
+    def _generate_antennas(self, extent, n_antennas):
+        for location in random_locations(n_antennas):
+            yield VariableAngleAntenna(
                 mast=Mast(location),
                 strength_sigma=self.strength_sigma,
-                **{
-                    key : float(gener.rvs(1))
-                    for key, gener in self._generators.items()
-                }
+                strength=self._strength_gen.rvs(1),
+                range=self._range_gen.rvs(1),
+                narrowness=self._narrowness_gen.rvs(1),
+                principal_angle=self._angle_gen.rvs(1),
             )
-            for location in generate_locations(extent, n_antennas)
-        ])
 
+
+class FixedAngleNetworkGenerator(NetworkGenerator):
+    def __init__(self, *args, **kwargs, grouping_factor):
+        super().__init__(*args, **kwargs)
+        self.grouping_factor = grouping_factor
+
+    def _generate_antennas(self, extent, n_antennas):
+        n_masts = int(numpy.ceil(n_antennas / grouping_factor))
+        antenna_masts = (numpy.random.rand(n_antennas) * n_masts).astype(int)
+        mast_antenna_counts = [(antenna_masts == i).sum() for i in range(n_masts)]
+        mast_locs = random_locations(extent, n_masts)
+        for mast_i in antenna_masts:
+            if mast_antenna_counts[mast_i] == 1:
+                narrowness = 0
+            else:
+                narrowness = self._narrowness_gen.rvs(1)
+            yield FixedAngleAntenna(
+                mast=DirectedMast(mast_locs[mast_i], self._angle_gen.rvs(1)),
+                strength_sigma=self.strength_sigma,
+                strength=self._strength_gen.rvs(1),
+                range=self._range_gen.rvs(1),
+                narrowness=narrowness
+            )
+                
 
 class AntennaNetwork:
     def __init__(self, extent, antennas):
@@ -124,13 +200,13 @@ class AntennaNetwork:
         return numpy.stack([
             antenna.strengths(locations) for antenna in self.antennas
         ])
-        
+
     def strengths_from_distangles(self, distances, angles):
         return numpy.stack([
             antenna.strengths_from_distangles(dists, angs)
             for dists, angs, antenna in zip(distances, angles, self.antennas)
         ])
-        
+
     def connections(self, locations):
         return self.strengths_to_connections(self.strengths(locations))
 
@@ -140,15 +216,7 @@ class AntennaNetwork:
         )
 
     def get_parameters(self):
-        return zip(*[
-            (
-                antenna.strength,
-                antenna.range,
-                antenna.principal_angle,
-                antenna.narrowness,
-            )
-            for antenna in self.antennas
-        ])
+        return zip(*[antenna.get_parameters() for antenna in self.antennas])
 
     @staticmethod
     def strengths_to_connections(strengths):
@@ -176,10 +244,10 @@ class AntennaNetwork:
 
 
 class ObservationSystem:
+    # TODO here!
     def __init__(self, extent, masts, observations):
         self.extent = extent
         self.masts = masts
-        self._mast_locs = numpy.stack([mast.location for mast in self.masts])
         self.observations = observations
         self.dirvectors = numpy.stack([
             mast.dirvectors(self.observations)
