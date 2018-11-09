@@ -4,6 +4,8 @@ optionally constraining to a given extent.'''
 
 import argparse
 
+import pandas as pd
+
 import mobilib
 import mobilib.voronoi
 
@@ -42,9 +44,12 @@ if __name__ == '__main__':
         ycol=args.ycol,
         srid=args.source_srid,
     )
+    # print(dir(site_gdf.geometry))
+    site_gdf = site_gdf[~site_gdf.geometry.isnull()]
+    extent = mobilib.load_extent(args.extent, args.target_srid)
     if args.target_srid != args.source_srid:
-        site_gdf = site_gdf.to_crs(args.target_srid)
-    extent = load_extent(args.extent)
-    site_gdf['cell'] = list(voronoi.mobilib.cells(site_gdf.geometry, extent))
-    cells_gdf = site_gdf.rename(columns={'geometry' : 'point', 'cell' : 'geometry'})
-    cells_gdf.to_file(args.outcellfile)
+        site_gdf = site_gdf.to_crs(mobilib.srid_to_crsdef(args.target_srid))
+    site_gdf['cell'] = list(mobilib.voronoi.cells_shapely(site_gdf.geometry, extent))
+    site_gdf.rename(
+        columns={'geometry' : 'point', 'cell' : 'geometry'}
+    ).drop(['point'], axis=1).to_file(args.outcellfile)
