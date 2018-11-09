@@ -29,7 +29,7 @@ parser.add_argument('-x', '--xcol', default='x',
     help='name of the X-coordinate column in input'
 )
 parser.add_argument('-y', '--ycol', default='y',
-    help='name of the X-coordinate column in input'
+    help='name of the Y-coordinate column in input'
 )
 parser.add_argument('-i', '--idcol', default='cell_name',
     help='name of antenna identifier column (unique)'

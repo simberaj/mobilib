@@ -1,6 +1,5 @@
 import argparse
 
-import numpy
 import pandas as pd
 import shapely.geometry
 
