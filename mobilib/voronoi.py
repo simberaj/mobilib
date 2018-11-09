@@ -49,4 +49,4 @@ def cells(points, extent=None):
 
 
 def cells_shapely(points, extent=None):
-    return cells(numpy.array([pt.coords[0] for pt in points]))
+    return cells(numpy.array([pt.coords[0] for pt in points]), extent=extent)
