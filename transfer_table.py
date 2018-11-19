@@ -41,10 +41,10 @@ parser.add_argument('-s', '--source-id-field', default='id',
     help='field in weighting layer containing the (absolute) weights'
 )
 parser.add_argument('-t', '--target-id-field', default='id',
-    help='field in weighting layer containing the (absolute) weights'
+    help='ID field of the source layer (will be used in the transfer table)'
 )
 parser.add_argument('-w', '--weight-field', default='weight',
-    help='field in weighting layer containing the (absolute) weights'
+    help='ID field of the target layer (will be used in the transfer table)'
 )
 
 if __name__ == '__main__':
