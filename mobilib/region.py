@@ -49,7 +49,7 @@ class Hierarchy:
         else:
             self.organic_membership = numpy.empty(self.n, dtype=bool)
         self.change_made()
-    
+
     def completed(self):
         self.complete = True
         self.organic_membership = self._compute_organics()
@@ -690,14 +690,6 @@ class ElementMover(HierarchyModifier):
                 hierarchy.change_made()
                 return True
 
-    # def _select(self, hierarchy, rels):
-        # # select two random elements
-        # new_child, new_parent = numpy.random.choice(hierarchy.flat, 2, replace=False)
-        # while new_child.parent is new_parent:
-            # new_child, new_parent = numpy.random.choice(hierarchy.flat, 2, replace=False)
-        # if new_child is hierarchy.root: # do not move root (we have root mover for that)
-            # new_parent, new_child = new_child, new_parent
-        # return new_parent, new_child
 
 class OrganicSubsystemCreator(HierarchyModifier):
     def modify(self, hierarchy, rels):
@@ -889,20 +881,6 @@ class HierarchyCrossover(HierarchyOperator):
         hierarchy.completed()
         return hierarchy
 
-        # joinpoint = self._find_joinpoint(result, crossel, rels)
-        # els_to_remove = self._find_removal_elements(result, crossids)
-        # # parentreg = self._build_parent_registry(result, els_to_remove)
-        # # find all removal actions to the first hierarchy
-        # orphans = self._prune(result, crossids, els_to_remove)
-        # self._join(result, crossel, joinpoint)
-        # if orphans:
-            # self._add_orphans(result, orphans)
-        # print(orphans)
-        # print(result.flat)
-        # print(result.elements_by_id)
-        # print(result.structure_string())
-        # return Hierarchy(root, hier1.n)
-
     def _prune(self, root, ids):
         accum = HierarchyElement()
         accum.add_child(root)
@@ -930,164 +908,12 @@ class HierarchyCrossover(HierarchyOperator):
             # no parent found, replace root
             crossel.add_child(hierarchy.root)
 
-
-
-    # def _build_parent_registry(hierarchy, els_to_remove):
-        # parentreg =
-        # for element in hierarchy.root.descendants():
-            # parent = element.parent
-            # while parent in els_to_remove:
-                # if parent is None:
-                    # break
-                # parent = parent.parent
-
-    # def _add_orphans(self, hierarchy, orphans):
-        # for orphan, target_ids in orphans:
-            # inner_ids = set(orphan.tree_ids())
-            # print('adding orphan', orphan, 'target ids', target_ids, 'inner ids', inner_ids)
-            # for target_id in target_ids:
-                # if target_id not in inner_ids:
-                    # hierarchy.elements_by_id[target_id].add_child(orphan)
-                    # break
-            # else:
-                # print('WARNING, adding', orphan, 'to root!')
-                # if hierarchy.root:
-                    # hierarchy.root.add_child(orphan)
-                # else:
-                    # hierarchy.set_root(orphan)
-
-    # def _join(self, hierarchy, crossel, joinpoint):
-        # hierarchy.register(crossel)
-        # for el in crossel.descendants():
-            # hierarchy.register(el)
-        # if joinpoint: # we are joining to hierarchy
-            # joinpoint.add_child(crossel)
-        # else: # crossel will become root
-            # if hierarchy.has_valid_root():
-                # # if the root was not pruned, do not forget it
-                # crossel.add_child(hierarchy.root)
-            # hierarchy.set_root(crossel)
-
-    # def _find_removal_elements(self, hier, ids_to_remove):
-        # return set(hier.elements_by_id[id] for id in ids_to_remove)
-
-    # def _prune(self, hier, ids_to_remove, els_to_remove=None):
-        # readd_stack = []
-        # if els_to_remove is None:
-            # els_to_remove = self._find_removal_elements(hier, ids_to_remove)
-        # for el in els_to_remove:
-            # orphans = []
-            # el_ids = list(el.ids())
-            # if el.is_organic:
-                # remove_ids = []
-                # remain_ids = []
-                # for id in el_ids:
-                    # (remove_ids if id in ids_to_remove else remain_ids).append(id)
-                # if not remain_ids:
-                    # # complete removal of organic system
-                    # print('completely removing', el)
-                    # hier.deregister(el)
-                    # orphans = el.dissolve()
-                # elif len(remain_ids) == 1:
-                    # # replacement of organic system by its remaining node
-                    # old_parent = el.parent
-                    # remainer = el.member_by_id(remain_ids[0])
-                    # print('replacing', el, 'by remainer', remainer)
-                    # hier.deregister(el)
-                    # el.remove_member(remainer)
-                    # # the former children can be directly reassigned to remainer
-                    # for orphan in el.dissolve():
-                        # remainer.add_child(orphan)
-                    # hier.register(remainer)
-                    # if old_parent:
-                        # old_parent.add_child(remainer)
-                    # else:
-                        # hier.set_root(remainer)
-                # else:
-                    # # removal of some members, remains an organic system
-                    # # no side effects, we can do this straight away
-                    # print('removing', remove_ids, 'from', el)
-                    # for id in remove_ids:
-                        # el.remove_member(el.member_by_id(id))
-                    # hier.refresh(el)
-            # else:
-                # # removal of node
-                # print('dissolving node', el)
-                # hier.deregister(el)
-                # orphans = el.dissolve()
-            # # we may have some orphans
-            # for orphan in orphans:
-                # print(orphan)
-                # # filter out those set for removal
-                # if not all(id in ids_to_remove for id in orphan.ids()):
-                    # readd_stack.append((orphan, el_ids))
-        # return readd_stack
-
     def _select_crossover_element(self, hier, rels):
         cweight = 0
         while not abs(cweight - .5) * 4 < numpy.random.rand():
             crossel = self._select_random_element(hier)
             cweight = crossel.tree_weight(rels)
         return crossel
-
-    # def _find_joinpoint(self, hier, crossel, rels):
-        # crossids = list(crossel.tree_ids())
-        # # find the parents of the corresponding element(s) in first hierarchy
-        # joinpoint = max(
-            # (hier.elements_by_id[id] for id in crossel.ids()),
-            # key=(lambda el: el.tree_weight(rels))
-        # )
-        # while joinpoint and all(id in crossids for id in joinpoint.ids()):
-            # joinpoint = joinpoint.parent
-        # return joinpoint
-
-        # remove all nodes marked by crossids from the first hierarchy
-        # orphans = []
-        # orphan_parent_ids = []
-        # print(result.flat)
-        # for id in crossids:
-            # print('removing', id)
-            # rem_elem = result.elements_by_id[id]
-            # if rem_elem is None:
-                # print(id, 'already orphaned')
-                # print(orphans)
-                # raise NotImplementedError
-            # retained, item_orphans, garbage = rem_elem.remove_by_id(id)
-            # print(retained, item_orphans, garbage)
-            # orphans.extend(item_orphans)
-            # orphan_parent_ids.extend(
-            # for element in garbage:
-                # print('dereg', element)
-                # result.deregister(element)
-            # if rem_elem.is_organic:
-                # print('refresh', rem_elem)
-                # result.refresh(rem_elem)
-            # if retained is not rem_elem and retained:
-                # print('rereg', retained)
-                # result.register(retained)
-        # result.register(crossel)
-        # for desc in crossel.descendants():
-            # result.register(desc)
-        # if joinpoint:
-            # # we are just joining a subtree
-            # joinpoint.add_child(crossel)
-            # assert not orphans
-        # else:
-            # # we are setting the cross element as a root
-            # old_root = result.root
-            # if old_root.is_organic and old_root.members:
-                # # if something left in former root, join it as child
-                # crossel.add_child(old_root)
-            # # and joining the orphans to it as children
-            # for orphan in orphans:
-                # print('adopting orphan', orphan)
-                # orphan_ids = list(orphan.ids())
-                # if all(oid not in crossids for oid in orphan_ids):
-                    # if not all(result.elements_by_id[orphan_ids]):
-                        # result.register(orphan)
-                    # crossel.add_child(orphan)
-            # result.set_root(crossel)
-        # return result
 
 
 HIERARCHY_MODIFIERS = [
