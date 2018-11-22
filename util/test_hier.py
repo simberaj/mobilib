@@ -1,5 +1,9 @@
+import sys
+import os
+
 import numpy
 
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import mobilib.region
 
 rels = mobilib.region.Relations(numpy.array([
@@ -16,16 +20,46 @@ parents = numpy.array((0,0,1,0,1,2,3,3))
 organ = numpy.array((0,0,1,0,0,0,0,0)).astype(bool)
 # parents = numpy.array((0,0,1,1,1,1,1,1))
 # organ = numpy.array((0,0,1,1,0,0,0,0)).astype(bool)
-hierarchy = mobilib.region.Hierarchy.create(parents, organ, rels=rels)
-# hierarchy = mobilib.region.MaxflowStochasticHierarchyBuilder().build(rels)
-
-print(rels.transition_probs)
-print(rels.weights)
-
-print(hierarchy.structure_string())
-print((hierarchy.binding_matrix * 100).astype(int))
-
+hier2 = mobilib.region.Hierarchy.create(parents, organ)
+# hierarchy = mobilib.region.MaxflowHierarchyBuilder().build(rels)
+# hier2 = hierarchy.copy()
+hierarchy = mobilib.region.MaxflowStochasticHierarchyBuilder().build(rels)
 criterion = mobilib.region.TransitionCriterion(organic_tolerance=1)
-print(criterion.evaluate(rels, hierarchy))
 
-# print(tree.structure_string(rels.transition_probs[numpy.arange(rels.n),parents]))
+# print((numpy.where(numpy.isfinite(hierarchy.binding_matrix(rels)), hierarchy.binding_matrix(rels), 0) * 100).astype(int))
+# print(hierarchy.structure_string())
+# print(criterion.evaluate(rels, hierarchy))
+# print()
+# print()
+
+modifs = [cls() for cls in mobilib.region.HIERARCHY_MODIFIERS]
+n_modifs = 0
+while n_modifs < 10:
+    modif = numpy.random.choice(modifs, 1)[0]
+    success = modif.modify(hierarchy, rels)
+    if success:
+        n_modifs += 1
+    # print(hierarchy.structure_string())
+    # print(hierarchy.elements_by_id)
+    # print(modif)
+    # print((numpy.where(numpy.isfinite(hierarchy.binding_matrix(rels)), hierarchy.binding_matrix(rels), 0) * 100).astype(int))
+    # print(hierarchy.structure_string())
+    # print(hierarchy.elements_by_id)
+    # print(criterion.evaluate(rels, hierarchy))
+    # x = input()
+    # print()
+    
+cross = mobilib.region.HierarchyCrossover()
+print(hierarchy.structure_string())
+print()
+print(hier2.structure_string())
+print()
+# print((numpy.where(numpy.isfinite(hierarchy.binding_matrix(rels)), hierarchy.binding_matrix(rels), 0) * 100).astype(int))
+# print(criterion.evaluate(rels, hierarchy))
+# print(hier2.structure_string())
+cross = cross.crossover(hierarchy, hier2, rels)
+print(cross.structure_string())
+print(criterion.evaluate(rels, cross))
+
+# print(hier2.structure_string())
+# print(criterion.evaluate(rels, hier2))

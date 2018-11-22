@@ -18,4 +18,6 @@ if __name__ == '__main__':
     # print(hierarchy.structure_string())
     criterion = mobilib.region.TransitionCriterion(organic_tolerance=2)
     print(criterion.evaluate(rels, hierarchy))
+    mover = mobilib.region.RootMover()
+    mover.modify(hierarchy, rels)
     # print(hierarchy.tree(ids=ids).structure_string())
