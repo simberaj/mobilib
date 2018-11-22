@@ -16,14 +16,14 @@ rels = mobilib.region.Relations(numpy.array([
     [ 4, 0, 1, 6, 0, 1,10, 2],
     [ 3, 1, 1, 5, 0, 1, 1, 6],
 ]))
-parents = numpy.array((0,0,1,0,1,2,3,3))
-organ = numpy.array((0,0,1,0,0,0,0,0)).astype(bool)
+# parents = numpy.array((0,0,1,0,1,2,3,3))
+# organ = numpy.array((0,0,1,0,0,0,0,0)).astype(bool)
 # parents = numpy.array((0,0,1,1,1,1,1,1))
 # organ = numpy.array((0,0,1,1,0,0,0,0)).astype(bool)
-hier2 = mobilib.region.Hierarchy.create(parents, organ)
+# hier2 = mobilib.region.Hierarchy.create(parents, organ)
 # hierarchy = mobilib.region.MaxflowHierarchyBuilder().build(rels)
 # hier2 = hierarchy.copy()
-hierarchy = mobilib.region.MaxflowStochasticHierarchyBuilder().build(rels)
+# hierarchy = mobilib.region.MaxflowStochasticHierarchyBuilder().build(rels)
 criterion = mobilib.region.TransitionCriterion(organic_tolerance=1)
 
 # print((numpy.where(numpy.isfinite(hierarchy.binding_matrix(rels)), hierarchy.binding_matrix(rels), 0) * 100).astype(int))
@@ -32,13 +32,13 @@ criterion = mobilib.region.TransitionCriterion(organic_tolerance=1)
 # print()
 # print()
 
-modifs = [cls() for cls in mobilib.region.HIERARCHY_MODIFIERS]
-n_modifs = 0
-while n_modifs < 10:
-    modif = numpy.random.choice(modifs, 1)[0]
-    success = modif.modify(hierarchy, rels)
-    if success:
-        n_modifs += 1
+# modifs = [cls() for cls in mobilib.region.HIERARCHY_MODIFIERS]
+# n_modifs = 0
+# while n_modifs < 10:
+    # modif = numpy.random.choice(modifs, 1)[0]
+    # success = modif.modify(hierarchy, rels)
+    # if success:
+        # n_modifs += 1
     # print(hierarchy.structure_string())
     # print(hierarchy.elements_by_id)
     # print(modif)
@@ -49,17 +49,22 @@ while n_modifs < 10:
     # x = input()
     # print()
     
-cross = mobilib.region.HierarchyCrossover()
-print(hierarchy.structure_string())
-print()
-print(hier2.structure_string())
-print()
-# print((numpy.where(numpy.isfinite(hierarchy.binding_matrix(rels)), hierarchy.binding_matrix(rels), 0) * 100).astype(int))
-# print(criterion.evaluate(rels, hierarchy))
+# cross = mobilib.region.HierarchyCrossover()
+# print(hierarchy.structure_string())
+# print()
 # print(hier2.structure_string())
-cross = cross.crossover(hierarchy, hier2, rels)
-print(cross.structure_string())
-print(criterion.evaluate(rels, cross))
+# print()
+# # print(criterion.evaluate(rels, hierarchy))
+# # print(hier2.structure_string())
+# cross = cross.crossover(hierarchy, hier2, rels)
+numpy.seterr(all='raise')
+genetic = mobilib.region.GeneticHierarchyBuilder()
+hierarchy = genetic.build(rels)
+print(hierarchy.structure_string())
+print((numpy.where(numpy.isfinite(hierarchy.binding_matrix(rels)), hierarchy.binding_matrix(rels), 0) * 100).astype(int))
+print(criterion.evaluate(rels, hierarchy))
 
 # print(hier2.structure_string())
 # print(criterion.evaluate(rels, hier2))
+
+# hierarchy = 

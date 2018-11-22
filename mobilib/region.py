@@ -3,6 +3,7 @@ import numpy
 
 from . import graph
 
+
 class Relations:
     def __init__(self, matrix, weights=None):
         self.matrix = matrix
@@ -147,9 +148,10 @@ class Hierarchy:
                 subsystem = OrganicSubsystem.create(partner, node)
                 nodes[i] = subsystem
                 nodes[partner_i] = subsystem
-                partner_parent = nodes[parents[partner_i]]
-                partner_parent.discard_child(partner)
-                partner_parent.add_child(subsystem)
+                if partner_i != root:
+                    partner_parent = nodes[parents[partner_i]]
+                    partner_parent.discard_child(partner)
+                    partner_parent.add_child(subsystem)
             elif i != root:
                 nodes[parents[i]].add_child(nodes[i])
         hier = cls(nodes[root], len(nodes))
@@ -166,14 +168,14 @@ class HierarchyElement:
         return rels.unit_weights[self.id].sum()
 
     def dissolve(self):
-        print('dissolving', self)
+        # print('dissolving', self)
         parent = self.parent
         children = self.children[:]
         for child in children:
             self.discard_child(child)
         if parent:
-            if children:
-                print('reassigning', children, 'to', parent)
+            # if children:
+                # print('reassigning', children, 'to', parent)
             for child in children:
                 parent.add_child(child)
             parent.discard_child(self)
@@ -303,7 +305,7 @@ class HierarchyNode(HierarchyElement):
         self.subsystem = None
 
     def prune(self, ids):
-        print('pruning', self)
+        # print('pruning', self)
         self._prune_children(ids)
         if self.id in ids:
             self.dissolve()
@@ -376,26 +378,26 @@ class OrganicSubsystem(HierarchyElement):
         member.unset_subsystem()
 
     def prune(self, ids):
-        print('pruning', self)
+        # print('pruning', self)
         self._prune_children(ids)
         remove_ids = []
         remain_ids = []
         for id in self.id:
             (remove_ids if id in ids else remain_ids).append(id)
-        print('ids:', remove_ids, remain_ids)
+        # print('ids:', remove_ids, remain_ids)
         if not remain_ids:
             self.dissolve()
         elif len(remain_ids) == 1:
             old_parent = self.parent
             remainer = self.member_by_id(remain_ids[0])
-            print('replacing', self, 'with', remainer)
+            # print('replacing', self, 'with', remainer)
             self.remove_member(remainer)
             old_parent.add_child(remainer)
             old_parent.discard_child(self)
             remainer.add_child(self)
             self.dissolve()
         elif remove_ids:
-            print('removing', remove_ids, 'from', self)
+            # print('removing', remove_ids, 'from', self)
             for id in remove_ids:
                 self.remove_member(self.member_by_id(id))
 
@@ -460,7 +462,6 @@ class OrganicSubsystem(HierarchyElement):
         return '<OrgSubsys({})>'.format(self.name)
 
 
-
 class Criterion:
     def evaluate(self, rels, hierarchy):
         raise NotImplementedError
@@ -478,8 +479,8 @@ class TransitionCriterion(Criterion):
                 hierarchy.organic_edges
                 & ~numpy.diag(numpy.diag(hierarchy.organic_edges))
             ) * rels.weights[numpy.newaxis,:]
-            print(hierarchy.organic_membership)
-            print(weighted_orgedges.sum(axis=1) * (1 - rels.selfprobs))
+            # print(hierarchy.organic_membership)
+            # print(weighted_orgedges.sum(axis=1) * (1 - rels.selfprobs))
             cohesion = (
                 (rels.transition_probs * weighted_orgedges).sum(axis=1)
                 / numpy.where(
@@ -494,10 +495,10 @@ class TransitionCriterion(Criterion):
             orgflows = rels.matrix * hierarchy.organic_edges
             org_inflows = orgflows.sum(axis=0)
             org_outflows = orgflows.sum(axis=1)
-            reciprocity = 1 - (
-                numpy.abs(org_outflows - org_inflows)
-                / (org_inflows + org_outflows - 2 * rels.selfrels)
-            )
+            numer = numpy.abs(org_outflows - org_inflows)
+            denom = (org_inflows + org_outflows - 2 * rels.selfrels)
+            denom = numpy.where(numpy.isclose(denom, 0), 1, denom)
+            reciprocity = 1 - numer / denom
             # print(reciprocity)
             organic_crit = (cohesion * reciprocity) ** self._expon
             # print(organic_crit)
@@ -510,7 +511,7 @@ class TransitionCriterion(Criterion):
 
 
 class HierarchyBuilder:
-    def build(self, rels):
+    def build(self, rels, **kwargs):
         raise NotImplementedError
 
 
@@ -524,14 +525,15 @@ class MaxflowHierarchyBuilder(HierarchyBuilder):
         # choose hierarchy root proportionally to number of incoming hierarchy edges
         # parent_counts = numpy.bincount(parents, minlength=rels.n)
         sqinflows = rels.insums ** 2
-        rootpos = self._argmax(sqinflows / sqinflows.sum())
+        root_probs = sqinflows / sqinflows.sum()
+        rootpos = self._argmax(root_probs)
         parents[rootpos] = rootpos
         # find all cycles, declare them organic and add their binding higher
         organicity = numpy.zeros(rels.n, dtype=bool)
         cycles = list(graph.parental_cycles(parents))
         organic_heads = []
         for i_try in range(self.DECYCLE_TRIES):
-            print('decycling')
+            # print('decycling')
             if len(cycles) == 1:
                 break
             for cycle in cycles:
@@ -551,9 +553,22 @@ class MaxflowHierarchyBuilder(HierarchyBuilder):
                 organic_heads.append(orghead)
                 # assign the head somewhere else
                 probs[orghead,cycle] = 0
-                probs[orghead] /= probs[orghead].sum()
+                probsum = probs[orghead].sum()
+                if probsum == 0:
+                    # redo root selection
+                    old_rootpos = rootpos
+                    rootpos = self._argmax(root_probs)
+                    parents[rootpos] = rootpos
+                    organicity[rootpos] = False
+                    parents[old_rootpos] = self._argmax(probs[old_rootpos])
+                    probs[orghead] = (rels.matrix[orghead] - rels.selfrels[orghead]) / rels.outsums_noself[orghead]
+                    break
+                else:
+                    probs[orghead] /= probsum
                 parents[orghead] = self._argmax(probs[orghead])
                 organicity[orghead] = False
+                if probsum == 0:
+                    break
             cycles = list(graph.parental_cycles(parents))
         else:
             # failed to decycle, rinse and repeat
@@ -570,11 +585,12 @@ class MaxflowHierarchyBuilder(HierarchyBuilder):
     def _argmax(self, weights):
         return weights.argmax()
 
+
 class MaxflowStochasticHierarchyBuilder(MaxflowHierarchyBuilder):
     deterministic = False
 
     def _argmax(self, weights):
-        return numpy.random.choice(len(weights), 1, p=weights)
+        return numpy.random.choice(len(weights), 1, p=weights)[0]
 
 
 class HierarchyOperator:
@@ -651,19 +667,9 @@ class RootMover(HierarchyModifier):
         # change root to randomly selected node with high inflows
         new_root = self._select_high_inflow(hierarchy, rels, exclude=[hierarchy.root])
         if new_root:
-            print('setting', new_root, 'as new root')
+            # print('setting', new_root, 'as new root')
             hierarchy.set_root(new_root)
             return True
-
-    # def modify(self, hierarchy, rels):
-        # # change root to randomly selected node with high inflows
-        # cumweights = numpy.array([
-            # el.inflow_sum(rels) if el is not hierarchy.root else 0
-            # for el in hierarchy.flat
-        # ]).cumsum()
-        # hierarchy.set_root(hierarchy.flat[numpy.searchsorted(
-            # cumweights, numpy.random.rand() * cumweights[-1]
-        # )])
 
 
 class ElementMover(HierarchyModifier):
@@ -675,7 +681,7 @@ class ElementMover(HierarchyModifier):
             # select a parent with a strong binding
             new_parent = self._select_bound_to(hierarchy, rels, new_child, exclude=[new_child.parent])
             if new_parent:
-                print('moving', new_child, 'under', new_parent)
+                # print('moving', new_child, 'under', new_parent)
                 # if new_child is predecessor of new_parent, we will have to assign
                 # new_parent to new_child.parent to maintain hierarchy
                 if new_parent.has_predecessor(new_child):
@@ -701,7 +707,7 @@ class OrganicSubsystemCreator(HierarchyModifier):
             # and select a strongly bound other non-organic node
             companion = self._select_bound_to(hierarchy, rels, source, exclude=hierarchy.organics)
             if companion:
-                print('creating organic subsystem from', source, 'and', companion)
+                # print('creating organic subsystem from', source, 'and', companion)
                 # put newly created subsystem at the root if source or companion were root
                 if not source.parent:
                     new_parent = None
@@ -735,7 +741,7 @@ class OrganicSubsystemDestructor(HierarchyModifier):
         # TIP select subsystem with low fitness?
         orgsys = self._select_random_organic(hierarchy)
         if orgsys:
-            print('destroying', orgsys)
+            # print('destroying', orgsys)
             hierarchy.deregister(orgsys)
             nodes = orgsys.members.copy()
             children = orgsys.children.copy()
@@ -757,6 +763,8 @@ class OrganicSubsystemDestructor(HierarchyModifier):
             for child in children:
                 orgsys.discard_child(child)
                 redir = self._select_bound_to_limited(nodes, rels, child)
+                if redir is None:
+                    redir = numpy.random.choice(nodes, 1)[0]
                 redir.add_child(child)
             return True
 
@@ -771,7 +779,7 @@ class OrganicSubsystemAdder(HierarchyModifier):
             # and add an element with a high bond to it
             joiner = self._select_bound_to(hierarchy, rels, orgsys)
             if joiner:
-                print('joining', joiner, 'to', orgsys)
+                # print('joining', joiner, 'to', orgsys)
                 joiner_parent = joiner.parent
                 prev = orgsys
                 for predec in orgsys.predecessors():
@@ -816,7 +824,7 @@ class OrganicSubsystemSubtractor(HierarchyModifier):
             )[0]
             # TIP select node with low fitness contribution?
             node = numpy.random.choice(selsys.members, 1)[0]
-            print('removing', node, 'from', selsys, 'and setting it as a child')
+            # print('removing', node, 'from', selsys, 'and setting it as a child')
             # remove it from the system and add it as a child
             orgsys = node.subsystem
             orgsys.remove_member(node)
@@ -829,14 +837,16 @@ class OrganicSubsystemSubtractor(HierarchyModifier):
 class HierarchyCrossover(HierarchyOperator):
     def crossover(self, hier1, hier2, rels):
         # select random element from second hierarchy
+        # print('selecting')
         sel_el = self._select_crossover_element(hier2, rels)
+        # print('selected')
         sel_predec_ids = [id
             for el in sel_el.predecessors()
                 for id in sorted(el.ids(), key=(lambda id: -rels.weights[id]))
         ]
         crossel = sel_el.copy()
         crossids = list(crossel.tree_ids())
-        print(crossel, '(', crossids, ')', crossel.parent)
+        # print(crossel, '(', crossids, ')', crossel.parent)
         # copy the first hierarchy - this will be the crossover result
         root = hier1.root.copy()
         # remove all ids contained in the 2nd hierarchy element from result
@@ -862,7 +872,7 @@ class HierarchyCrossover(HierarchyOperator):
         hierarchy = Hierarchy(root, n, complete=False)
         # go along the predecessor ids until we get to root or find something
         # in the hierarchy
-        print('joining', predec_ids)
+        # print('joining', predec_ids)
         for id in predec_ids:
             parent = hierarchy.elements_by_id[id]
             if parent:
@@ -910,9 +920,14 @@ class HierarchyCrossover(HierarchyOperator):
 
     def _select_crossover_element(self, hier, rels):
         cweight = 0
-        while not abs(cweight - .5) * 4 < numpy.random.rand():
+        i = 0
+        while not abs(cweight - .5) * 2 < numpy.random.rand():
             crossel = self._select_random_element(hier)
             cweight = crossel.tree_weight(rels)
+            i += 1
+            if i > 1000:
+                print(hier.structure_string())
+                raise RuntimeError
         return crossel
 
 
@@ -924,3 +939,93 @@ HIERARCHY_MODIFIERS = [
     OrganicSubsystemAdder,
     OrganicSubsystemSubtractor,
 ]
+
+
+class GeneticHierarchyBuilder(HierarchyBuilder):
+    DEFAULT_PARAMS = dict(
+        population=30,
+        crossover_rate=1,
+        mutation_rate=1,
+        elitism_rate=0.05,
+        stability_termination=20,
+        max_generations=100,
+        constructer=MaxflowStochasticHierarchyBuilder(),
+        crosser=HierarchyCrossover(),
+        criterion=TransitionCriterion(organic_tolerance=1),
+        mutators=[mut() for mut in HIERARCHY_MODIFIERS],
+        mutator_weights=[1, 8, 1, 1, 2, 2],
+    )
+
+    def __init__(self, **kwargs):
+        self.__dict__.update({
+            key : kwargs.get(key, self.DEFAULT_PARAMS[key])
+            for key in self.DEFAULT_PARAMS
+        })
+        msum = sum(self.mutator_weights)
+        self.mutator_probs = [w / msum for w in self.mutator_weights]
+
+    def build(self, rels, **kwargs):
+        solutions = [
+            self.constructer.build(rels, **kwargs)
+            for i in range(self.population)
+        ]
+        fitnesses = self.evaluate(solutions, rels)
+        maxfit = fitnesses.max()
+        stable_generations = 0
+        for gen_i in range(self.max_generations):
+            print(gen_i, maxfit)
+            solutions.extend(self.crossover(solutions, rels))
+            solutions.extend(self.mutate(solutions, rels))
+            fitnesses = self.evaluate(solutions, rels, fitnesses)
+            solutions, fitnesses = self.select(solutions, fitnesses)
+            prev_maxfit = maxfit
+            maxfit = fitnesses.max()
+            if maxfit == prev_maxfit:
+                stable_generations += 1
+                if stable_generations >= self.stability_termination:
+                    break
+            else:
+                stable_generations = 0
+        return solutions[fitnesses.argmax()]
+
+    def evaluate(self, solutions, rels, fitnesses=None):
+        if fitnesses is None:
+            fitnesses = []
+        return numpy.concatenate((fitnesses, numpy.array([
+            self.criterion.evaluate(rels, sol)
+            for sol in solutions[len(fitnesses):]
+        ])))
+
+    def crossover(self, source, rels):
+        for i in range(int(self.crossover_rate * self.population)):
+            # print('cross', i)
+            sol1, sol2 = numpy.random.choice(source, 2, replace=False)
+            # print(sol1.structure_string())
+            # print(sol2.structure_string())
+            yield self.crosser.crossover(sol1, sol2, rels)
+            # print()
+            
+    def mutate(self, source, rels):
+        n_new = int(self.mutation_rate * self.population)
+        i = 0
+        while i < n_new:
+            oper = numpy.random.choice(self.mutators, 1, p=self.mutator_probs)[0]
+            chosen = numpy.random.choice(source, 1)[0].copy()
+            success = oper.modify(chosen, rels)
+            if success:
+                i += 1
+                yield chosen
+
+    def select(self, solutions, fitnesses):
+        n_elit = int(self.elitism_rate * self.population)
+        elitist_is = numpy.argsort(fitnesses)[-n_elit:]
+        others = numpy.ones(len(solutions), dtype=bool)
+        others[elitist_is] = False
+        scores = numpy.random.rand(len(solutions)) * fitnesses * others
+        all_is = (
+            list(elitist_is)
+            + list(numpy.argsort(scores)[-(self.population-len(elitist_is)):])
+        )
+        return [solutions[i] for i in all_is], fitnesses[all_is]
+            
+        
