@@ -54,6 +54,12 @@ class Hierarchy:
     def completed(self):
         self.complete = True
         self.organic_membership = self._compute_organics()
+    
+    def to_arrays(self):
+        parents = numpy.empty(self.n, dtype=int)
+        organics = numpy.zeros(self.n, dtype=bool)
+        self.root.record_to_arrays(parents, organics)
+        return parents, organics
 
     def _compute_organics(self):
         return numpy.array([
@@ -133,13 +139,17 @@ class Hierarchy:
         return mem
 
     @classmethod
-    def create(cls, parents, organics=None, ids=None, root=None):
+    def create(cls, parents, organics=None, ids=None, root=None, rels=None):
         n = parents.size
         indices = numpy.arange(n)
         if ids is None: ids = indices
         if organics is None: organics = numpy.zeros(n, dtype=bool)
         if root is None: root = numpy.flatnonzero(indices == parents)[0]
-        nodes = [HierarchyNode(i, ids[i]) for i in indices]
+        if rels is None:
+            weights = indices[::-1]
+        else:
+            weights = rels.weights
+        nodes = [HierarchyNode(i, ids[i], weight=weights[i]) for i in indices]
         for i in indices:
             if organics[i]:
                 node = nodes[i]
@@ -163,6 +173,10 @@ class HierarchyElement:
         self.parent = parent
         self.children = []
         self.binding_weight = None
+    
+    @property
+    def head(self):
+        return self
 
     def weight(self, rels):
         return rels.unit_weights[self.id].sum()
@@ -184,6 +198,11 @@ class HierarchyElement:
         return self.weight(rels) + sum(
             child.tree_weight(rels) for child in self.children
         )
+    
+    def record_to_arrays(self, parents, organics):
+        for child in self.children:
+            child.record_to_arrays(parents, organics)
+        self._record_to_arrays(parents, organics)
 
     def tree_ids(self):
         yield from self.ids()
@@ -273,11 +292,16 @@ class HierarchyElement:
 class HierarchyNode(HierarchyElement):
     is_organic = False
 
-    def __init__(self, id, name, parent=None, subsystem=None):
+    def __init__(self, id, name, parent=None, subsystem=None, weight=1):
         super().__init__(parent)
         self.id = id
         self.name = str(name)
         self.subsystem = subsystem
+        self.weight = weight
+
+    @property
+    def head(self):
+        return self
 
     def copy(self):
         return self._with_copied_children(
@@ -309,6 +333,13 @@ class HierarchyNode(HierarchyElement):
         self._prune_children(ids)
         if self.id in ids:
             self.dissolve()
+    
+    def _record_to_arrays(self, parents, organics):
+        if self.parent is None:
+            parents[self.id] = self.id
+        else:
+            parents[self.id] = self.parent.head.id
+        organics[self.id] = False
 
     def outward_transition_probabilities(self, rels):
         selfprob = rels.selfprobs[self.id]
@@ -355,6 +386,17 @@ class OrganicSubsystem(HierarchyElement):
         return self._with_copied_children(
             type(self)([member.copy() for member in self.members])
         )
+        
+    @property
+    def head(self):
+        return max(self.members, key=(lambda mem: mem.weight))
+        
+    def _record_to_arrays(self, parents, organics):
+        head_id = self.head.id
+        parents[self.id] = head_id
+        organics[self.id] = True
+        parents[head_id] = (head_id if self.parent is None else self.parent.head.id)
+        organics[head_id] = False
 
     def inflow_sum(self, rels):
         return rels.insums[self.id].sum()
@@ -580,7 +622,7 @@ class MaxflowHierarchyBuilder(HierarchyBuilder):
                 raise ValueError('cannot decycle')
             else:
                 return self.build(rels, **kwargs)
-        return Hierarchy.create(parents, organicity, **kwargs)
+        return Hierarchy.create(parents, organicity, rels=rels, **kwargs)
 
     def _argmax(self, weights):
         return weights.argmax()
