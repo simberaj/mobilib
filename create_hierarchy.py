@@ -10,7 +10,7 @@ parser.add_argument('relation_file', help='file with OD relations between places
 parser.add_argument('out_file', help='file to write the output OD result')
 parser.add_argument('-p', '--place-file',
     help='file with further information about places')
-parser.add_argument('-u', '--place-id-col',
+parser.add_argument('-i', '--place-id-col',
     help='field in place file with the place identifier matching the relation file')
 parser.add_argument('-f', '--from-col',
     help='field in relation table containing the relation source place identifier')
@@ -18,6 +18,8 @@ parser.add_argument('-t', '--to-col',
     help='field in relation table containing the target place identifier')
 parser.add_argument('-s', '--strength-col',
     help='field in relation table containing the relation strength')
+parser.add_argument('-w', '--save-weights', action='store_true',
+    help='save a weight column from the relations')
    
     
 if __name__ == '__main__':
@@ -39,8 +41,10 @@ if __name__ == '__main__':
     outdf = pd.DataFrame({
         'id' : ids,
         'parent_id' : [ids[parent] for parent in parents],
-        'organ' : organics,
+        'organ' : organics
     })
+    if args.save_weights:
+        outdf['weight'] = rels.weights
     if args.place_file:
         outdf = pd.merge(
             pd.read_csv(args.place_file, sep=';'),
