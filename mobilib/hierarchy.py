@@ -3,6 +3,42 @@ import numpy
 
 from . import graph
 
+def nicefy(low, high):
+    mean = (low + high) * 0.5
+    nplaces = int(numpy.ceil(numpy.log10(mean)))
+    roundmean = numpy.around(mean, -nplaces)
+    while roundmean > high or roundmean < low:
+        nplaces -= 1
+        roundmean = numpy.around(mean, -nplaces)
+    return roundmean
+
+
+def optimal_zipf_threshold(values, select=0):
+    values = numpy.sort(values)
+    n = values.size
+    ratings = numpy.diff(values) / values[1:] * numpy.log(n - numpy.arange(n-1) - 1)
+    start = n // 2
+    rated_is = numpy.argsort(ratings[start:]) + start
+    if select:
+        opt_is = rated_is[-select:][::-1]
+        thresholds = [nicefy(*values[i:i+2]) for i in opt_is]
+        opt_i_in = prompt_select_ideal(n - 1 - opt_is, thresholds, ratings[opt_is])
+        return thresholds[opt_i_in]
+    else:
+        opt_i = rated_is[-1]
+        return nicefy(*values[opt_i:opt_i+2])
+
+
+def prompt_select_ideal(counts, thresholds, ratings):
+    for i in range(len(counts)):
+        print(
+            'Variant {:d}: {:d} regions at threshold {:n} (rating {:n})'.format(
+                i+1, counts[i], thresholds[i], ratings[i]
+            )
+        )
+    var = int(input('Select optimal threshold variant by number: '))
+    return var - 1
+
 
 class Relations:
     def __init__(self, matrix, weights=None):
@@ -54,7 +90,7 @@ class Hierarchy:
     def completed(self):
         self.complete = True
         self.organic_membership = self._compute_organics()
-    
+
     def to_arrays(self):
         parents = numpy.empty(self.n, dtype=int)
         organics = numpy.zeros(self.n, dtype=bool)
@@ -111,6 +147,7 @@ class Hierarchy:
     def change_made(self):
         self._organic_edges = None
         self._binding_matrix = None
+        self._binding_strengths = None
 
     def structure_string(self):
         return '\n'.join(self.root.structure_lines(indent=0))
@@ -121,7 +158,7 @@ class Hierarchy:
             self.root.weigh_bindings(rels)
             self.root.bind_paths(self._binding_matrix)
         return self._binding_matrix
-
+    
     @property
     def organic_edges(self):
         if self._organic_edges is None:
@@ -139,16 +176,17 @@ class Hierarchy:
         return mem
 
     @classmethod
-    def create(cls, parents, organics=None, ids=None, root=None, rels=None):
+    def create(cls, parents, organics=None, ids=None, root=None, weights=None, parents_as_ids=False):
         n = parents.size
         indices = numpy.arange(n)
-        if ids is None: ids = indices
+        if ids is None:
+            ids = indices
+        elif parents_as_ids:
+            id_dict = dict(zip(ids, indices))
+            parents = numpy.array([id_dict[parent] for parent in parents])
         if organics is None: organics = numpy.zeros(n, dtype=bool)
         if root is None: root = numpy.flatnonzero(indices == parents)[0]
-        if rels is None:
-            weights = indices[::-1]
-        else:
-            weights = rels.weights
+        if weights is None: weights = indices[::-1]
         nodes = [HierarchyNode(i, ids[i], weight=weights[i]) for i in indices]
         for i in indices:
             if organics[i]:
@@ -173,7 +211,27 @@ class HierarchyElement:
         self.parent = parent
         self.children = []
         self.binding_weight = None
-    
+
+    def aggregate(self, criterion):
+        regions = []
+        loners = []
+        for child in self.children:
+            addreg, addlon = child.aggregate(criterion)
+            regions.extend(addreg)
+            loners.extend(addlon)
+        candidate = [self] + loners
+        if criterion(candidate):
+            regions.append(Region(candidate))
+            loners = []
+        else:
+            loners.append(self)
+        return regions, loners
+
+    def tree_values(self, getter):
+        yield getter(self.tree())
+        for child in self.children:
+            yield from child.tree_values(getter)
+
     @property
     def head(self):
         return self
@@ -198,7 +256,7 @@ class HierarchyElement:
         return self.weight(rels) + sum(
             child.tree_weight(rels) for child in self.children
         )
-    
+
     def record_to_arrays(self, parents, organics):
         for child in self.children:
             child.record_to_arrays(parents, organics)
@@ -275,8 +333,12 @@ class HierarchyElement:
 
     def descendants(self):
         for child in self.children:
-            yield child
-            yield from child.descendants()
+            yield from child.tree()
+
+    def tree(self):
+        yield self
+        for child in self.children:
+            yield from child.tree()
 
     def _with_copied_children(self, element):
         for child in self.children:
@@ -333,7 +395,7 @@ class HierarchyNode(HierarchyElement):
         self._prune_children(ids)
         if self.id in ids:
             self.dissolve()
-    
+
     def _record_to_arrays(self, parents, organics):
         if self.parent is None:
             parents[self.id] = self.id
@@ -386,11 +448,11 @@ class OrganicSubsystem(HierarchyElement):
         return self._with_copied_children(
             type(self)([member.copy() for member in self.members])
         )
-        
+
     @property
     def head(self):
         return max(self.members, key=(lambda mem: mem.weight))
-        
+
     def _record_to_arrays(self, parents, organics):
         head_id = self.head.id
         parents[self.id] = head_id
@@ -504,17 +566,49 @@ class OrganicSubsystem(HierarchyElement):
         return '<OrgSubsys({})>'.format(self.name)
 
 
-class Criterion:
-    def evaluate(self, rels, hierarchy):
+class Region:
+    def __init__(self, elements):
+        self.elements = elements
+
+    @property
+    def head(self):
+        return self.elements[0].head
+
+    def record_assignment(self, array):
+        head_id = self.head.id
+        for element in self.elements:
+            array[element.id] = head_id
+
+    def __repr__(self):
+        return '<Region' + str(self.elements) + '>'
+
+
+class RegionalSystem:
+    def __init__(self, regions, n):
+        self.regions = regions
+        self.n = n
+
+    def to_array(self):
+        assig = numpy.empty(self.n, dtype=int)
+        for region in self.regions:
+            region.record_assignment(assig)
+        return assig
+
+    def __repr__(self):
+        return '<RegionalSystem({0.n:d},{0.regions}>'.format(self)
+
+
+class HierarchyCriterion:
+    def evaluate(self, hierarchy, rels):
         raise NotImplementedError
 
 
-class TransitionCriterion(Criterion):
+class TransitionCriterion(HierarchyCriterion):
     def __init__(self, organic_tolerance=1):
         self.organic_tolerance = organic_tolerance
         self._expon = 1 / (2 * self.organic_tolerance)
 
-    def evaluate(self, rels, hierarchy):
+    def evaluate_nodes(self, hierarchy, rels):
         if hierarchy.organics:
             # cohesion: how well the organic subsystems are integrated
             weighted_orgedges = (
@@ -547,9 +641,59 @@ class TransitionCriterion(Criterion):
         else:
             organic_crit = 1
         hierarchy_crit = (rels.transition_probs / hierarchy.binding_matrix(rels)).sum(axis=1)
+        return numpy.sqrt(hierarchy_crit * organic_crit)
+        
+    def evaluate(self, hierarchy, rels):
         # print(hierarchy_crit)
         # print(numpy.sqrt(hierarchy_crit * organic_crit))
-        return rels.weighted_sum(numpy.sqrt(hierarchy_crit * organic_crit))
+        return rels.weighted_sum(self.evaluate_nodes(hierarchy, rels))
+
+
+class AggregationCriterion:
+    def aggregate(self, hierarchy, *args, strict=False, **kwargs):
+        regions, loners = hierarchy.root.aggregate(
+            self._create_validator(*args, **kwargs)
+        )
+        if loners:
+            if strict:
+                raise ValueError('loners at root:' + str(loners))
+            else:
+                regions.append(Region(list(reversed(loners))))
+        return RegionalSystem(regions, hierarchy.n)
+
+    @classmethod
+    def get_levels(cls, hierarchy, *args, **kwargs):
+        return list(hierarchy.root.tree_values(cls._create_getter(*args, **kwargs)))
+
+    @classmethod
+    def optimal(cls, hierarchy, *args, select=0, **kwargs):
+        levels = cls.get_levels(hierarchy, *args, **kwargs)
+        optimal = cls.threshold_selector(levels, select=select)
+        return cls(minimum=optimal)
+
+
+class MinimumAggregationCriterion(AggregationCriterion):
+
+    def __init__(self, minimum):
+        self.minimum = minimum
+
+    def _create_validator(self, *args, **kwargs):
+        getter = self._create_getter(*args, **kwargs)
+        def validator(elements):
+            return getter(elements) >= self.minimum
+        return validator
+
+
+class WeightAggregationCriterion(MinimumAggregationCriterion):
+    threshold_selector = optimal_zipf_threshold
+
+    @staticmethod
+    def _create_getter(weights):
+        def getter(elements):
+            return sum(
+                weights[el.id].sum() for el in elements
+            )
+        return getter
 
 
 class HierarchyBuilder:
@@ -622,7 +766,7 @@ class MaxflowHierarchyBuilder(HierarchyBuilder):
                 raise ValueError('cannot decycle')
             else:
                 return self.build(rels, **kwargs)
-        return Hierarchy.create(parents, organicity, rels=rels, **kwargs)
+        return Hierarchy.create(parents, organicity, weights=rels.weights, **kwargs)
 
     def _argmax(self, weights):
         return weights.argmax()
@@ -1034,7 +1178,7 @@ class GeneticHierarchyBuilder(HierarchyBuilder):
         if fitnesses is None:
             fitnesses = []
         return numpy.concatenate((fitnesses, numpy.array([
-            self.criterion.evaluate(rels, sol)
+            self.criterion.evaluate(sol, rels)
             for sol in solutions[len(fitnesses):]
         ])))
 
@@ -1046,7 +1190,7 @@ class GeneticHierarchyBuilder(HierarchyBuilder):
             # print(sol2.structure_string())
             yield self.crosser.crossover(sol1, sol2, rels)
             # print()
-            
+
     def mutate(self, source, rels):
         n_new = int(self.mutation_rate * self.population)
         i = 0
@@ -1069,5 +1213,3 @@ class GeneticHierarchyBuilder(HierarchyBuilder):
             + list(numpy.argsort(scores)[-(self.population-len(elitist_is)):])
         )
         return [solutions[i] for i in all_is], fitnesses[all_is]
-            
-        

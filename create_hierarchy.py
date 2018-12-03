@@ -20,8 +20,10 @@ parser.add_argument('-s', '--strength-col',
     help='field in relation table containing the relation strength')
 parser.add_argument('-w', '--save-weights', action='store_true',
     help='save a weight column from the relations')
-   
-    
+parser.add_argument('-b', '--save-bindings', action='store_true',
+    help='save a hierarchy binding strength column from the relations')
+
+
 if __name__ == '__main__':
     args = parser.parse_args()
     reldf = pd.read_csv(args.relation_file, sep=';')
@@ -29,12 +31,14 @@ if __name__ == '__main__':
     if args.from_col: from_col = args.from_col
     if args.to_col: to_col = args.to_col
     if args.strength_col: strength_col = args.strength_col
-    rels, ids = mobilib.hierarchy.Relations.from_dataframe(reldf, from_col, to_col, strength_col)
+    rels, ids = mobilib.hierarchy.Relations.from_dataframe(
+        reldf, from_col, to_col, strength_col
+    )
     builder = mobilib.hierarchy.MaxflowHierarchyBuilder()
     # builder = mobilib.region.GeneticHierarchyBuilder()
     hierarchy = builder.build(rels, ids=ids)
     # print(hierarchy.structure_string())
-    criterion = mobilib.hierarchy.TransitionCriterion()
+    
     # mover = mobilib.hierarchy.RootMover()
     # mover.modify(hierarchy, rels)
     parents, organics = hierarchy.to_arrays()
@@ -45,6 +49,9 @@ if __name__ == '__main__':
     })
     if args.save_weights:
         outdf['weight'] = rels.weights
+    if args.save_bindings:
+        criterion = mobilib.hierarchy.TransitionCriterion()
+        outdf['binding'] = criterion.evaluate_nodes(hierarchy, rels) ** 2
     if args.place_file:
         outdf = pd.merge(
             pd.read_csv(args.place_file, sep=';'),
