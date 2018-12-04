@@ -5,9 +5,9 @@ import functools
 
 import numpy
 import pyproj
-import shapely.geometry
-import shapely.ops
-import geopandas as gpd
+# import shapely.geometry
+# import shapely.ops
+# import geopandas as gpd
 
 
 def srid_to_crsdef(srid):
