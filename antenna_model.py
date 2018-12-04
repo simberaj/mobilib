@@ -3,24 +3,27 @@ import numpy
 import matplotlib.pyplot as plt
 # from mpl_toolkits.mplot3d import Axes3D
 
-import mobilib.simul
+import mobilib.antenna
 
 if __name__ == '__main__':
     # numpy.random.seed(42)
     numpy.random.seed(2510)
-    netgener = mobilib.simul.VariableAngleNetworkGenerator(
+    # netgener = mobilib.antenna.FixedAngleNetworkGenerator(
+    netgener = mobilib.antenna.VariableAngleNetworkGenerator(
         strength_mean=2,
         strength_stdev=0.5,
         range_mean=1,
         range_stdev=0.5,
         narrowness_mean=0.5,
         strength_sigma=0.75,
+        # grouping_factor=2.5,
     )
-    net = netgener.generate((0,0,50,50), 10)
+    net = netgener.generate((0,0,50,50), 20)
+    # net = netgener.generate((0,0,50,50), 15)
     print(net)
-    obs_sys = mobilib.simul.ObservationSystem.create(
-        net, 200,
-        weighter_class=mobilib.simul.VoronoiAreaObservationWeighter
+    obs_sys = mobilib.antenna.ObservationSystem.create(
+        net, 500,
+        weighter_class=mobilib.antenna.VoronoiAreaObservationWeighter
     )
     print(obs_sys)
     conns = net.connections(obs_sys.observations)
@@ -28,7 +31,8 @@ if __name__ == '__main__':
     ax = plt.gca()
     obs_sys.plot(ax, net)
 
-    est = mobilib.simul.MeasureNetworkEstimator()
+    est = mobilib.antenna.MeasureNetworkEstimator()
+    # est = mobilib.antenna.AdjustingNetworkEstimator()
     estnet = est.estimate(obs_sys, conns)
     plt.figure()
     ax = plt.gca()
@@ -38,7 +42,7 @@ if __name__ == '__main__':
     # ax = fig.add_subplot(111, projection='3d')
     # obs_sys.plot(ax, net)
     
-    # iest = mobilib.simul.AdjustingNetworkEstimator()
+    # iest = mobilib.antenna.AdjustingNetworkEstimator()
     # iestnet = iest.estimate(obs_sys, conns)
     # plt.figure()
     # ax = plt.gca()

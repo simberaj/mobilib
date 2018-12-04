@@ -59,7 +59,8 @@ class Antenna:
 
     def _update_distros(self):
         self._strength = scipy.stats.norm(loc=self.strength, scale=self.strength_sigma)
-        self._distance = scipy.stats.norm(scale=self.range)
+        # self._distance = scipy.stats.norm(scale=self.range)
+        self._distance = scipy.stats.cauchy(scale=self.range)
         if self.principal_angle is None or self.narrowness == 0:
             self._angle = scipy.stats.uniform(scale=2 * numpy.pi)
         else:
@@ -186,14 +187,14 @@ class FixedAngleNetworkGenerator(NetworkGenerator):
         self.grouping_factor = grouping_factor
 
     def _generate_antennas(self, extent, n_antennas):
-        n_masts = int(numpy.ceil(n_antennas / grouping_factor))
+        n_masts = int(numpy.ceil(n_antennas / self.grouping_factor))
         antenna_masts = (numpy.random.rand(n_antennas) * n_masts).astype(int)
         mast_antenna_counts = [(antenna_masts == i).sum() for i in range(n_masts)]
         mast_locs = random_locations(extent, n_masts)
         for mast_i in antenna_masts:
             if mast_antenna_counts[mast_i] == 1:
-                narrowness = 0
-                angle = None
+                narrowness = 0.0
+                angle = 0.0
             else:
                 narrowness = self._narrowness_gen.rvs(1)
                 angle = self._angle_gen.rvs(1)
@@ -229,7 +230,7 @@ class AntennaNetwork:
     def connections_from_distangles(self, distances, angles, p=0):
         return self.strengths_to_connections(
             self.strengths_from_distangles(distances, angles),
-            p=0
+            p=p
         )
 
     @staticmethod
@@ -243,7 +244,7 @@ class AntennaNetwork:
         ax.scatter(
             self._antenna_locs[:,0],
             self._antenna_locs[:,1],
-            c=['C' + str(i) for i in range(self.n_antennas)],
+            c=['C' + str(i % 10) for i in range(self.n_antennas)],
             s=64,
         )
         for antenna in self.antennas:
@@ -274,14 +275,18 @@ class ObservationSystem:
         self.extent = extent
         self.masts = masts
         self.mast_type = type(self.masts[0])
-        self.observations = observations
+        # print(set(tuple(mast.location) for mast in self.masts))
+        self.observations = numpy.concatenate((
+            observations,
+            numpy.array(list(set(tuple(mast.location) for mast in self.masts)))
+        ))
         self.dirvectors = numpy.stack([
             mast.dirvectors(self.observations)
             for mast in self.masts
         ])
         self.distances = vector.length(self.dirvectors)
         self.angles = vector.angle(self.dirvectors)
-        self.unitvectors = self.dirvectors / self.distances[:,:,numpy.newaxis]
+        self.unitvectors = self.dirvectors / numpy.where(self.distances == 0, 1, self.distances)[:,:,numpy.newaxis]
         self.weighter = weighter_class(self.observations, self.extent)
 
     @property
@@ -301,7 +306,7 @@ class ObservationSystem:
         return network.connections_from_distangles(self.distances, self.angles, p=p)
 
     def connection_matrix(self, network, p=0, **kwargs):
-        return self.connections_to_matrix(self.connections(network, p=0), **kwargs)
+        return self.connections_to_matrix(self.connections(network, p=p), **kwargs)
 
     def connections_to_matrix(self, connections, weighted=False):
         connmatrix = (
@@ -332,7 +337,7 @@ class ObservationSystem:
             cellcolors = itertools.repeat('#bbbbbb')
         else:
             connections = self.connections(network)
-            colors = ['C' + str(i) for i in connections]
+            colors = ['C' + str(i % 10) for i in connections]
             cellcolors = colors
         self.weighter.plot(ax, cellcolors)
         ax.scatter(
@@ -423,9 +428,18 @@ class AntennaNetworkEstimator:
 
 
 class MeasureNetworkEstimator(AntennaNetworkEstimator):
-    def estimate(self, system, connections):
+    # UNIT_KAPPA = 
+
+    def estimate(self, system, connections=None, connmatrix=None, network=None):
         # strengths assumed equal
-        connmatrix = system.connections_to_matrix(connections, weighted=True)
+        if connmatrix is None:
+            if connections is None:
+                if network is None:
+                    raise ValueError('must provide connection indices or matrix')
+                else:
+                    connmatrix = system.connection_matrix(network, p=1)
+            else:
+                connmatrix = system.connections_to_matrix(connections, weighted=True)
         params = self.calculate_parameters(system, connmatrix)
         params['strength'] = numpy.ones(system.n_masts)
         return self._network_from_params(system, params)
@@ -434,30 +448,47 @@ class MeasureNetworkEstimator(AntennaNetworkEstimator):
     def calculate_parameters(cls, system, connmatrix, names=None):
         if names is None:
             names = system.get_param_names()
-        nconns = connmatrix.sum(axis=1)
-        nconns_unzeroed = numpy.where(nconns == 0, 1, nconns)
+        connected_weight = connmatrix.sum(axis=1)
+        assert (connected_weight > 0).all()
+        print(connmatrix)
+        print(connmatrix.shape)
+        print('cw')
+        print(connected_weight)
+        # print(system.unitvectors)
+        print(system.unitvectors.shape)
         if 'narrowness' in names or 'principal_angle' in names:
             sincossums = (
                 (system.unitvectors * connmatrix[:,:,numpy.newaxis]).sum(axis=1)
-                / nconns_unzeroed[:,numpy.newaxis]
+                / connected_weight[:,numpy.newaxis]
             )
+            print(system.unitvectors)
+            print('sc')
+            print(connected_weight[:,numpy.newaxis])
+            print(sincossums)
             sincossums = numpy.where(numpy.isnan(sincossums), 0, sincossums)
+            print(vector.length(sincossums))
         params = {}
         if 'range' in names:
             params['range'] = (
                 (system.distances * connmatrix).sum(axis=1)
-                / nconns_unzeroed
+                / connected_weight
             )
         if 'narrowness' in names:
-            params['narrowness'] = cls._estimate_kappa(vector.length(sincossums))
+            sumlengths = vector.length(sincossums)
+            sumlengths_one = sumlengths == 1
+            params['narrowness'] = cls._estimate_kappa(
+                numpy.where(sumlengths_one, 0, sumlengths)
+            )
         if 'principal_angle' in names:
             params['principal_angle'] = vector.angle(sincossums)
         return params
 
     @staticmethod
     def _estimate_kappa(rbar, n_iter=3):
+        print(rbar)
         rbarsq = rbar ** 2
         kappa = rbar * (2 - rbarsq) / (1 - rbarsq)
+        print(kappa)
         for i in range(n_iter):
             apkappa = scipy.special.iv(1, kappa) / scipy.special.iv(0, kappa)
             apkappadelta = numpy.where(kappa == 0, 0, apkappa)
