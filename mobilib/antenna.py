@@ -356,7 +356,7 @@ class ObservationSystem:
                 self.observations[:,0],
                 self.observations[:,1],
                 numpy.log(antstrengths),
-                c=('C' + str(i)),
+                c=('C' + str(i % 10)),
                 s=9
             )
 
@@ -450,23 +450,12 @@ class MeasureNetworkEstimator(AntennaNetworkEstimator):
             names = system.get_param_names()
         connected_weight = connmatrix.sum(axis=1)
         assert (connected_weight > 0).all()
-        print(connmatrix)
-        print(connmatrix.shape)
-        print('cw')
-        print(connected_weight)
-        # print(system.unitvectors)
-        print(system.unitvectors.shape)
         if 'narrowness' in names or 'principal_angle' in names:
             sincossums = (
                 (system.unitvectors * connmatrix[:,:,numpy.newaxis]).sum(axis=1)
                 / connected_weight[:,numpy.newaxis]
             )
-            print(system.unitvectors)
-            print('sc')
-            print(connected_weight[:,numpy.newaxis])
-            print(sincossums)
             sincossums = numpy.where(numpy.isnan(sincossums), 0, sincossums)
-            print(vector.length(sincossums))
         params = {}
         if 'range' in names:
             params['range'] = (

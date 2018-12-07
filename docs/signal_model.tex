@@ -1,0 +1,327 @@
+\documentclass[a4paper]{article}
+
+\addtolength{\oddsidemargin}{-10pt}
+\addtolength{\textwidth}{50pt}
+\addtolength{\textheight}{70pt}
+\addtolength{\voffset}{-40pt}
+
+\title{Mobile antenna model description}
+\author{Jan Šimbera}
+\date{\today}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[pdftex,unicode,hidelinks]{hyperref}
+\usepackage[pdftex]{graphicx}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+This document outlines a model that describes the spread of cell phone signal
+for the purposes of mapping cell phone antenna coverage areas and detecting
+the user's location somewhat more accurately.
+\end{abstract}
+
+
+\section{Model description} \label{sec:antmodel}
+
+\subsection{Assumptions}
+The connection of the cell phone to the mobile network is facilitated through
+a system of antennas. Usually, the operator shares very little information
+about these antennas; nevertheless, some parameters, such as antenna location,
+are almost always available, sometimes through crowdsourced registers. We thus
+assume the antenna locations $\vec{x_0} = (x_0,y_0)$ are fixed and known; we
+also assume a planar coordinate system for simplicity.
+
+\subsection{Signal spread model}\label{sec:sigmodel}
+We assume three orthogonal effects on the signal strength $S_i(\vec{x})$
+of antenna $i$ for a given location $\vec{x} = (x,y)$, that is:
+\begin{itemize}
+\item antenna power $P_i$,
+\item distance from the antenna $d_i(\vec{x}) = ||\vec{x} - \vec{x_i}||$,
+\item azimuth of the vector from the antenna to the location
+    $\varphi_i(\vec{x}) = \arctan{\frac{y - y_i}{x - x_i}}$.
+\end{itemize}
+
+We can employ a probabilistic approach to the problem: we first model the
+probability of a user being at a given location $\vec{x}$ if we know that he
+or she is connected to an antenna $i$ and then use the Bayesian rule to
+determine signal strength as the inverse conditional probability:
+\begin{equation}
+S_i(\vec{x}) = P(i|\vec{x}) = P(\vec{x}|i) \frac{P(i)}{P(\vec{x})}
+\end{equation}
+We can isolate the $P(i)$ as the antenna power $P_i$ and amalgamate the
+remaining two terms to make the model agnostic to an apriori distribution of
+users (i.e. population/settlement density):
+\begin{equation}
+S_i(\vec{x}) = P_i \frac{P(\vec{x}|i)}{P(\vec{x})} = P_i \cdot L_i(\vec{x})
+\end{equation}
+The resulting term $L_i(\vec{x})$ should capture the remaining two effects of
+distance and azimuth. As we assume the effects to be orthogonal, we can
+express it as
+\begin{equation}
+L_i(\vec{x}) = f_d(d_i(\vec{x})) \cdot f_a(\varphi_i(\vec{x}))
+\end{equation}
+
+\subsubsection{Distance decay}
+As we operate on macroscopic scales, the distance decay of an EM signal is
+governed by an inverse square law:
+\begin{equation}
+S_i(\vec{x}) \propto d_i(\vec{x})^{-2}
+\end{equation}
+This, however, would imply the signal strength goes to infinity near the
+location of the antenna. Therefore, it is useful to employ a small correcting
+factor. Using this, we arrive at a probabilistic description by a Cauchy
+distribution, which is useful:
+\begin{equation}
+d_i(\vec{x}) \sim \mathrm{Cauchy}(0,\gamma_i)
+\end{equation}
+where $\gamma_i$ is the distance decay scale factor. We can use the probability
+density function of the Cauchy distribution as our distance decay function:
+\begin{equation}
+f_d(d_i(\vec{x})) = \frac{1}{
+    \pi \gamma_i \left[1 + \left( \frac{d_i(\vec{x})}{\gamma_i} \right)^2 \right]
+} = \frac{\gamma_i}{\pi [d_i(\vec{x})^2 + \gamma_i^2]}
+\end{equation}
+
+\subsubsection{Angular distribution}
+To model the angular dispersion of the signal, we can use the von Mises
+distribution in a manner similar to the Cauchy distribution for distance decay.
+The von Mises distribution is a circular analogue of the normal distribution:
+\begin{equation}
+f(\varphi) = \frac{\exp{[\kappa \cos{(\varphi - \alpha)}]}}{2\pi I_0(\kappa)}
+\end{equation}
+where $I_0(\kappa)$ is the modified Bessel function of order zero, $\alpha$ is
+the principal angle and $\kappa$ is the directional concentration.
+
+Using this, we define
+\begin{equation}
+f_a(\varphi_i(\vec{x})) = \frac
+    {\exp{[\kappa_i \cos{(\varphi_i(\vec{x}) - \alpha_i)}]}}
+    {2\pi I_0(\kappa_i)}
+\end{equation}
+which leaves us with two parameters for the antenna: orientation (principal
+angle) $\alpha$ and angular signal concentration (narrowness) $\kappa$.
+
+\subsubsection{Final signal strength equation}
+Combining the above results, we arrive at the final signal model result
+\begin{align}
+S_i(\vec{x}) &= P_i \cdot f_d(d_i(\vec{x})) \cdot f_a(\varphi_i(\vec{x}))\\
+&= P_i \frac
+    {\gamma_i \exp{[\kappa_i \cos{(\varphi_i(\vec{x}) - \alpha_i)}]}}
+    {2\pi^2 I_0(\kappa_i) [d_i(\vec{x})^2 + \gamma_i^2]}\\
+&= \frac{P_i \gamma_i}{2\pi^2 I_0(\kappa_i)} \cdot \frac
+    {\exp{[\kappa_i \cos{(\varphi_i(\vec{x}) - \alpha_i)}]}}
+    {d_i(\vec{x})^2 + \gamma_i^2}\\
+&= K_i \cdot \frac
+    {\exp{[\kappa_i \cos{(\varphi_i(\vec{x}) - \alpha_i)}]}}
+    {d_i(\vec{x})^2 + \gamma_i^2}
+\end{align}
+
+Since the signal strengths are relative to each other, we should specify a
+condition on their absolute values; this can be formulated e.g. as
+\begin{equation} \label{eq:powersumcond}
+\sum_{a=1}^{n_a} P_a \gamma_a = 1
+\end{equation}
+
+\subsection{Antenna parameters}
+The signal strength model uses four additional parameters (in addition to
+location) to describe the antennas:
+\begin{itemize}
+\item Antenna orientation azimuth $\alpha \in [0;2\pi)$ (with zero pointing
+    north).
+\item Antenna power or overall signal strength $P \in \mathbb{R}^{+}$. This
+    is somehow related to the power of the antenna transmitter.
+\item Distance decay scale parameter $\gamma \in \mathbb{R}^{+}$, defining
+    the rate of signal strength diminishing with increasing distance from the
+    antenna. This can be related e.g. to the vertical orientation of the
+    antenna with respect to the surface.
+\item Angular concentration of antenna signal $\kappa \in \mathbb{R}^{+}_{0}$.
+    The higher the concentration (narrowness), the more the signal power is
+    concentrated along the direction of the antenna orientation. $\kappa = 0$
+    means the antenna is isotropic and radiates the signal uniformly in all
+    directions.
+\end{itemize}
+Sometimes, some of the parameters may be known a priori, such as the antenna
+azimuths. The rest of the parameters need to be estimated from the antenna
+connection data, which should be the next large task.
+
+
+
+\section{Model parameter estimation}
+To estimate the antenna parameters, several variants of data sources may be
+used. In this estimation scenario, we consider a set of $n_p$ places $p$ with
+locations $\vec{x}_p$. We denote the signal strength of a given antenna
+$a$ at that place as $S_{ap}$, the distance $d_{ap}$ and angle $\varphi_{ap}$
+of a given place from it as in \ref{sec:sigmodel}.
+
+In addition to the place data, we enter data about a set of $n_u$ users and
+their simultaneous connections to antennas (that is, how often they are
+connected to what antennas while not moving themselves).
+Therefore, we propose using night-time signalling (SS.7 logs) or CDR
+data where antenna connection variability is most likely to come from antenna
+signal strength variation, not from user movements. Given this, we may derive
+for each user a set of connection time fractions $f_{ua}$ denoting the
+likelihood of the connection of the user to the respective antennas, satisfying
+$\sum_{a=1}^{n_a} f_{ua} = 1 \,\forall u$.
+
+\subsection{Estimation with known locations} \label{sec:locest}
+If we have an additional data source that allows us to determine the actual
+night-time positions of the users (such as independent mobility tracker app
+logs), the model estimation becomes simpler because we can compute the user
+location probabilities with respect to the places $p$ directly as $p_{up}$.
+
+The algorithm works as an EM procedure, trying to estimate the signal strengths
+for all places and antennas with antenna parameters as proxy variables.
+The E step estimates the antenna parameters from signal strengths using OLS,
+with the initial values obtained from location averaging, and the M step
+estimates the signal strengths from the antenna parameters using the equations
+from \ref{sec:antmodel}.
+
+\subsubsection{Antenna dominance fractions}
+Dominance fractions denote how much the given place is dominated by a signal
+from a given antenna, an therefore, the probability of a user at a given
+location being connected to the antenna:
+\begin{equation}
+\Psi_{ap} = \frac
+    {\sum_{u=1}^{n_u} p_{up} f_{ua}}
+    {\sum_{u=1}^{n_u} p_{up}}
+\end{equation}
+This ensures that $\sum_{a=1}^{n_a} \Psi_{ap} = 1 \,\forall p$.
+
+\subsubsection{Expectation step}
+In this step, we compute the optimal antenna parameters using OLS on a
+linearized signal strength function (with parameters from the previous round)
+set as equal to the E-computed signal strength:
+\begin{align}
+\frac{1}{P_a^{(i)}} &\cdot P_a^{(i+1)} \nonumber \\
++ \frac
+    {d_{ap}^2 - {\gamma_a^{(i)}}^2}
+    {\gamma_a^{(i)} (d_{ap}^2 + {\gamma_a^{(i)}}^2)}
+    &\cdot \gamma_a^{(i+1)} \nonumber \\
++ \kappa_a^{(i)} \sin{(\varphi_{ap} - \alpha_a^{(i)})}
+    &\cdot \alpha_a^{(i+1)} \nonumber \\
++ \left[
+        \cos{(\varphi_{ap} - \alpha_a^{(i)})}
+        - \frac{I_1(\kappa_a^{(i)})}{I_0(\kappa_a^{(i)})}
+    \right] &\cdot \kappa_a^{(i+1)} =\\
+\frac{S_{ap}^{(i+1)}}{S_{ap}^{(i)}}
++ 1
++ \frac
+    {d_{ap}^2 - {\gamma_a^{(i)}}^2}
+    {d_{ap}^2 + {\gamma_a^{(i)}}^2}
++ \kappa_a^{(i)} \alpha_a^{(i)} \sin{(\varphi_{ap} - \alpha_a^{(i)})}
+&+ \kappa_a^{(i)} \left[
+        \cos{(\varphi_{ap} - \alpha_a^{(i)})}
+        - \frac{I_1(\kappa_a^{(i)})}{I_0(\kappa_a^{(i)})}
+    \right] \nonumber
+\end{align}
+
+\subsubsection{Maximization step}
+In this step, we estimate the signal strengths for places from their antenna
+dominances and antenna parameters:
+\begin{equation}
+S_{ap}^{(i+1)} = \Psi_{ap} \sum_{b=1}^{n_a} \frac
+    {P_b^{(i)} \gamma_b^{(i)} \exp{[
+        \kappa_b^{(i)} \cos{(\varphi_{bp} - \alpha_b^{(i)})}
+    ]}}
+    {2\pi^2 I_0(\kappa_b^{(i)}) [d_{bp}^2 + {\gamma_b^{(i)}}^2]}\\
+\end{equation}
+
+\subsubsection{Initial antenna parameter estimations}
+The initial values can be obtained as follows:
+
+\paragraph{Antenna principal angles} $\alpha_a$ -- if not known -- can be
+determined as weighted circular means
+\begin{equation}
+\alpha_a = \arctan \frac
+    {\sum_{p=1}^{n_p} \Psi_{ap} \sin \varphi_{ap}}
+    {\sum_{p=1}^{n_p} \Psi_{ap} \cos \varphi_{ap}}
+\end{equation}
+
+\paragraph{Antenna angular concentrations} $\kappa_a$ can be determined
+using the von Mises-Fisher iterative estimation procedure from the parameter
+$\bar{R}_a$:
+\begin{equation}
+\bar{R}_a = \frac
+    {\left(\sum_{p=1}^{n_p} \Psi_{ap} \sin \varphi_{ap}\right)^2
+        + \left(\sum_{p=1}^{n_p} \Psi_{ap} \cos \varphi_{ap}\right)^2}
+    {\left(\sum_{p=1}^{n_p} \Psi_{ap}\right)^2}
+\end{equation}
+With this parameter, we can produce the initial estimate for $\kappa_a$ as
+\begin{equation}
+\kappa_a^{(0)} = \frac
+    {\bar{R}_a (2 - \bar{R}_a^2)}
+    {1 - \bar{R}_a^2}
+\end{equation}
+and then repeat the following equation until convergence
+\begin{equation}
+\kappa_a^{(i+1)} = \kappa_a^{(i)} - \frac
+    {A_p(\kappa_a^{(i)}) - \bar{R}_a}
+    {1 - A_p(\kappa_a^{(i)})^2 - \frac{A_p(\kappa_a^{(i)})}{\kappa_a^{(i)}}}
+\end{equation}
+where $A_p(x) = \frac{I_1(x)}{I_0(x)}$ is the ratio of modified Bessel functions
+of the first and zeroth order respectively. Three iterations are usually
+sufficient.
+
+\paragraph{Antenna distance decay parameter} $\gamma_a$ may be estimated as
+the weighted mean distance of a dominated place from the antenna:
+\begin{equation}
+\gamma_a = \frac
+    {\sum_{p=1}^{n_p} \Psi_{ap} d_{ap}}
+    {\sum_{p=1}^{n_p} \Psi_{ap}}
+\end{equation}
+
+\paragraph{Strengths of the antennas} $P_a$, to honor the condition from
+\eqref{eq:powersumcond}, can be estimated as the relative size of the antenna's
+area of dominance to the total area of study. We need to factor out the
+general influence of the distance decay parameter, too:
+\begin{equation}
+P_a = \frac
+    {\sum_{p=1}^{n_p} \Psi_{ap} A_p}
+    {\gamma_a \sum_{p=1}^{n_p} A_p}
+\end{equation}
+where $A_p$ is the area corresponding to place $p$ -- if the places are only
+given as points, the areas may be computed e. g. using Voronoi polygons.
+
+
+\subsection{Estimation with unknown locations}
+If we do not have data about real user locations $p_{up}$, we can supply them by
+employing an EM estimation procedure over the proposed approach.
+
+To do this, it is useful to know at least roughly the expected user densities
+over the places used $w_p$. These densities may be derived from an apriori
+population distribution measure such as a census grid or, alternatively, a land
+use layer such as GHSL aggregated to a reasonable level.
+
+\subsubsection{Expectation step}
+This step of the procedure estimates the user locations
+from signal strengths in those places by computing place affinities as
+\begin{equation}
+a_{up}^{(i+1)} = \left(
+    1 + \frac
+        {w_p - \sum_{u=1}^{n_u} p_{up}^{(i)}}
+        {w_p + \sum_{u=1}^{n_u} p_{up}^{(i)}}
+\right)^{\frac{1}{k_c}}
+\sqrt{
+    \frac{1}{n_a} \sum_{a=1}^{n_a} \left(
+        f_{ua} - \frac{S_{ap}^{(i)}}{\sum_{b=1}^{n_a} S_{bp}^{(i)}}
+    \right)^2
+}
+\end{equation}
+where $k_c$ is the crowding tolerance coefficient specifying the degree of
+adherence to the apriori place weights $w_p$. Its higher values mean a more
+different spatial distribution of users can arise.
+
+Then the actual localization probabilities are produced by normalizing the
+affinities to sum to one:
+\begin{equation}
+p_{up}^{(i+1)} = \frac
+    {a_{up}^{(i+1)}}
+    {\sum_{q=1}^{n_p} a_{uq}^{(i+1)}}
+\end{equation}
+
+\subsubsection{Maximization step}
+This step of the procedure uses the method from
+\ref{sec:locest} to derive $S_{ap}^{(i)}$ from $p_{up}^{(i)}$.
+\end{document}
