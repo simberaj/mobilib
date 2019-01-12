@@ -4,83 +4,91 @@ DEFAULT_HOME_CODE = 'k'
 DEFAULT_WORK_CODE = 't'
 DEFAULT_MULTIFX_CODE = 'm'
 
-def build_codes(main_code, sec_code, sec_fraction=.5):
-    return {main_code : 1, sec_code : sec_fraction}
 
-DEFAULT_HOME_CODES = build_codes(
-    DEFAULT_HOME_CODE,
-    DEFAULT_MULTIFX_CODE,
-)
-DEFAULT_WORK_CODES = build_codes(
-    DEFAULT_WORK_CODE,
-    DEFAULT_MULTIFX_CODE,
-)
+class UntypedAimer:
+    def aim(self, types):
+        return numpy.ones(types.shape)
+    
+    def __repr__(self):
+        return '<UntypedAimer>'
+
+        
+class TypedAimer:
+    def __init__(self, type_fractions):
+        self.type_fractions = type_fractions
+        
+    def aim(self, types):
+        return numpy.stack([
+            (types == code) * weight
+            for code, weight in self.type_fractions.items()
+        ]).sum(axis=0)
+        
+    def __repr__(self):
+        return '<Aimer{}>'.format(self.type_fractions)
+
+        
+GENERAL_AIMER = UntypedAimer()
+        
+EE_HOME_AIMER = TypedAimer({
+    'k' : 1,
+    'm' : .5,
+})
+
+EE_WORK_AIMER = TypedAimer({
+    't' : 1,
+    'm' : .5,
+})
+
+def ipf(values, rowsums, colsums, tol=1e-9):
+    while True:
+        prevalues = values
+        prerowsums = values.sum(axis=1)
+        values = values * (
+            rowsums / numpy.where(prerowsums == 0, 1, prerowsums)
+        ).reshape(-1, 1)
+        precolsums = values.sum(axis=0)
+        values = values * (
+            colsums / numpy.where(precolsums == 0, 1, precolsums)
+        ).reshape(1, -1)
+        diff = abs(prevalues - values).sum()
+        if diff <= tol:
+            prerowsums = values.sum(axis=1)
+            values = values * (
+                rowsums / numpy.where(prerowsums == 0, 1, prerowsums)
+            ).reshape(-1, 1)
+            print(values)
+        
 
 class RelationGenerator:
-    def relate(self, importances, types, selfinter=True):
-        sources = self.sources(importances, types)
-        source_sum = sources.sum()
+    def __init__(self, name=None, source_aimer=GENERAL_AIMER, target_aimer=GENERAL_AIMER, selfinter=True):
+        self.name = name
+        self.source_aimer = source_aimer
+        self.target_aimer = target_aimer
+        self.selfinter = selfinter
+        
+    def relate(self, importances, types):
         n = len(importances)
+        rels = self.eligibility(n).astype(float)
+        sources = importances * self.source_aimer.aim(types) * rels.max(axis=1)
+        source_sum = sources.sum()
         if source_sum == 0:
             return numpy.zeros((n,n))
-        targets = self.targets(importances, types)
-        eligibility = self.eligibility(n, selfinter=selfinter)
-        targeting_weight = eligibility * targets[numpy.newaxis,:]
-        weight_sum = targeting_weight.sum(axis=1)
-        has_targets = weight_sum != 0
-        targeted_sources = sources * has_targets
-        tsource_sum = targeted_sources.sum()
-        if tsource_sum == 0:
+        targets = importances * self.target_aimer.aim(types) * rels.max(axis=0)
+        target_sum = targets.sum()
+        if target_sum == 0:
             return numpy.zeros((n,n))
-        transfer = targeted_sources / (tsource_sum * numpy.where(has_targets, weight_sum, 1))
-        return transfer[:,numpy.newaxis] * targeting_weight
+        result = ipf(rels, sources / source_sum, targets / target_sum)
+        return result
         
-    @staticmethod
-    def sources(importances, types):
-        return importances
-        
-    @staticmethod
-    def targets(importances, types):
-        return importances
-        
-    @staticmethod
-    def eligibility(n, selfinter=True):
+    def eligibility(self, n):
         elig = numpy.ones((n,n), dtype=bool)
-        if not selfinter:
+        if not self.selfinter:
             numpy.fill_diagonal(elig, False)
         return elig
         
-    @staticmethod
-    def type_importances(importances, types, codes):
-        return importances * numpy.stack([
-            (types == code) * weight for code, weight in codes.items()
-        ]).sum(axis=0)
-        
-        
-class GeneralRelationGenerator(RelationGenerator):
-    name = 'gen'
-
-        
-class HomeBaseRelationGenerator(RelationGenerator):
-    name = 'home'
-    
-    def __init__(self, home_codes=DEFAULT_HOME_CODES):
-        self.home_codes = home_codes
-        
-    def sources(self, importances, types):
-        return self.type_importances(importances, types, self.home_codes)
-
-
-class HomeWorkRelationGenerator(HomeBaseRelationGenerator):
-    name = 'homework'
-    
-    def __init__(self, home_codes=DEFAULT_HOME_CODES, work_codes=DEFAULT_WORK_CODES):
-        self.home_codes = home_codes
-        self.work_codes = work_codes
-        
-    def targets(self, importances, types):
-        return self.type_importances(importances, types, self.work_codes)
-    
+    def __repr__(self):
+        return '<RelGen({0.name},{0.source_aimer}-{0.target_aimer},selfinter={0.selfinter})>'.format(self)
+   
         
 if __name__ == '__main__':
     imps = numpy.array([4,2,2,1,1,1])
@@ -93,14 +101,15 @@ if __name__ == '__main__':
         '',
     ])
     gens = [
-        GeneralRelationGenerator(),
-        HomeBaseRelationGenerator(),
-        HomeWorkRelationGenerator(),
+        RelationGenerator(),
+        RelationGenerator(selfinter=False),
+        RelationGenerator('home', EE_HOME_AIMER),
+        RelationGenerator('home', EE_HOME_AIMER, selfinter=False),
+        RelationGenerator('hw', EE_HOME_AIMER, EE_WORK_AIMER),
+        RelationGenerator('hw', EE_HOME_AIMER, EE_WORK_AIMER, selfinter=False),
     ]
-    for selfinter in (False, True):
-        print('si', selfinter)
-        for gen in gens:
-            print(gen)
-            print((gen.relate(imps, codes, selfinter=selfinter) * 1000).astype(int))
-        print()
+    for gen in gens:
+        print(gen)
+        print((gen.relate(imps, codes) * 1000).astype(int))
+    print()
             
