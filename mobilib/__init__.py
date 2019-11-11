@@ -2,12 +2,14 @@
 '''Generic, all-purpose functions.'''
 
 import functools
+import argparse
 
 import numpy
 import pyproj
-# import shapely.geometry
-# import shapely.ops
-# import geopandas as gpd
+import shapely.geometry
+import shapely.ops
+import pandas as pd
+import geopandas as gpd
 
 
 def srid_to_crsdef(srid):
@@ -51,3 +53,10 @@ def load_extent(path=None, target_srid=None):
         return poly
     else:
         return None
+
+def read_places(args):
+    if args.place_file.endswith('.csv'):
+        df = pd.read_csv(args.place_file, sep=';')
+        return point_gdf(df, args.x_col, args.y_col, args.srid)
+    else:
+        return gdf.read_file(args.place_file)
