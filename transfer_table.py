@@ -1,8 +1,16 @@
 
-'''Converts a site CSV to cell polygon file using Voronoi tesselation,
-optionally constraining to a given extent.'''
+'''Create a transfer table to perform areal interpolation between two sets of units.
+
+A transfer table specifies what share of a given source area values is to
+be transferred to a given target area. This can be computed using their overlaps
+which can be weighted according to a given weighting layer.
+
+Optionally, a transfer table can also specify the self-interaction parameter
+for the given 
+'''
 
 import argparse
+import pickle
 
 import numpy
 import pandas as pd
@@ -18,7 +26,14 @@ def intersection_area_fx(gcol1, gcol2):
         else:
             return row[gcol1].intersection(row[gcol2]).area
     return intersector
-        # if not row[gcol1].is_empty 
+
+def intersection_fx(gcol1, gcol2):
+    def intersector(row):
+        if row[gcol2] is numpy.nan:
+            return np.nan
+        else:
+            return row[gcol1].intersection(row[gcol2])
+    return intersector
 
 
 parser = argparse.ArgumentParser(
@@ -38,13 +53,16 @@ parser.add_argument('out_table',
     help='path to output the transfer table as a semicolon-delimited CSV'
 )
 parser.add_argument('-s', '--source-id-field', default='id',
-    help='field in weighting layer containing the (absolute) weights'
-)
-parser.add_argument('-t', '--target-id-field', default='id',
     help='ID field of the source layer (will be used in the transfer table)'
 )
-parser.add_argument('-w', '--weight-field', default='weight',
+parser.add_argument('-t', '--target-id-field', default='id',
     help='ID field of the target layer (will be used in the transfer table)'
+)
+parser.add_argument('-w', '--weight-field', default='weight',
+    help='field in weighting layer containing the (absolute) weights'
+)
+parser.add_argument('-m', '--eta-model',
+    help='a model to estimate the self-interaction parameter'
 )
 
 if __name__ == '__main__':
@@ -53,7 +71,8 @@ if __name__ == '__main__':
     weight_gdf = gpd.read_file(args.weighting_file).rename_axis('wt_id').reset_index()
     weight_gdf['wt_geom'] = weight_gdf['geometry']
     parts_gdf = gpd.sjoin(source_gdf, weight_gdf, op='intersects', how='left')
-    parts_gdf['part_area'] = parts_gdf.apply(intersection_area_fx('geometry', 'wt_geom'), axis=1)
+    parts_gdf['part'] = parts_gdf.apply(intersection_fx('geometry', 'wt_geom'), axis=1)
+    parts_gdf['part_area'] = parts_gdf['part'].area
     parts_gdf = parts_gdf.merge(
         parts_gdf.groupby('wt_id')['part_area'].sum().reset_index().rename(
             columns={'part_area' : 'part_area_sum'}
@@ -122,4 +141,6 @@ if __name__ == '__main__':
         on=args.source_id_field
     )
     trans_table['weight'] /= trans_table['weight_sum']
-    trans_table.drop('weight_sum', axis=1).to_csv(args.out_table, sep=';', index=False)
+    trans_table = trans_table.drop('weight_sum', axis=1)
+    print(trans_table)
+    trans_table.to_csv(args.out_table, sep=';', index=False)

@@ -88,8 +88,11 @@ class RelationGenerator:
         
     def __repr__(self):
         return '<RelGen({0.name},{0.source_aimer}-{0.target_aimer},selfinter={0.selfinter})>'.format(self)
-   
-        
+
+
+
+
+
 if __name__ == '__main__':
     imps = numpy.array([4,2,2,1,1,1])
     codes = numpy.array([
