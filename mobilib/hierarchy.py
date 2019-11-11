@@ -1,24 +1,26 @@
 
-import numpy
+import numpy as np
+import scipy.sparse
+import scipy.sparse.csgraph
 
 from . import graph
 
 def nicefy(low, high):
     mean = (low + high) * 0.5
-    nplaces = int(numpy.ceil(numpy.log10(mean)))
-    roundmean = numpy.around(mean, -nplaces)
+    nplaces = int(np.ceil(np.log10(mean)))
+    roundmean = np.around(mean, -nplaces)
     while roundmean > high or roundmean < low:
         nplaces -= 1
-        roundmean = numpy.around(mean, -nplaces)
+        roundmean = np.around(mean, -nplaces)
     return roundmean
 
 
 def optimal_zipf_threshold(values, select=0):
-    values = numpy.sort(values)
+    values = np.sort(values)
     n = values.size
-    ratings = numpy.diff(values) / values[1:] * numpy.log(n - numpy.arange(n-1) - 1)
+    ratings = np.diff(values) / values[1:] * np.log(n - np.arange(n-1) - 1)
     start = n // 2
-    rated_is = numpy.argsort(ratings[start:]) + start
+    rated_is = np.argsort(ratings[start:]) + start
     if select:
         opt_is = rated_is[-select:][::-1]
         thresholds = [nicefy(*values[i:i+2]) for i in opt_is]
@@ -50,24 +52,25 @@ class Relations:
         self.weights = weights if weights is not None else self.outsums
         self.totweight = self.weights.sum()
         self.unit_weights = self.weights / self.totweight
-        self.selfrels = numpy.diag(matrix)
+        self.selfrels = np.diag(matrix)
         self.outsums_noself = self.outsums - self.selfrels
-        self.transition_probs = self.matrix / self.outsums[:,numpy.newaxis]
-        self.selfprobs = numpy.diag(self.transition_probs)
+        self.transition_probs = self.matrix / self.outsums[:,np.newaxis]
+        self.selfprobs = np.diag(self.transition_probs)
 
     def weighted_sum(self, items):
         return (items * self.unit_weights).sum()
 
     @classmethod
     def from_dataframe(cls, df, from_id_col, to_id_col, strength_col):
-        all_ids = numpy.array(list(sorted(set(
+        print(df.head())
+        all_ids = np.array(list(sorted(set(
             list(df[from_id_col].unique())
             + list(df[to_id_col].unique())
         ))))
         n = len(all_ids)
-        matrix = numpy.zeros((n,n), dtype=df[strength_col].dtype)
-        from_ids = numpy.searchsorted(all_ids, df[from_id_col])
-        to_ids = numpy.searchsorted(all_ids, df[to_id_col])
+        matrix = np.zeros((n,n), dtype=df[strength_col].dtype)
+        from_ids = np.searchsorted(all_ids, df[from_id_col])
+        to_ids = np.searchsorted(all_ids, df[to_id_col])
         matrix[from_ids,to_ids] = df[strength_col].values
         return cls(matrix), all_ids
 
@@ -84,7 +87,7 @@ class Hierarchy:
         if self.complete:
             self.organic_membership = self._compute_organics()
         else:
-            self.organic_membership = numpy.empty(self.n, dtype=bool)
+            self.organic_membership = np.empty(self.n, dtype=bool)
         self.change_made()
 
     def completed(self):
@@ -92,13 +95,13 @@ class Hierarchy:
         self.organic_membership = self._compute_organics()
 
     def to_arrays(self):
-        parents = numpy.empty(self.n, dtype=int)
-        organics = numpy.zeros(self.n, dtype=bool)
+        parents = np.empty(self.n, dtype=int)
+        organics = np.zeros(self.n, dtype=bool)
         self.root.record_to_arrays(parents, organics)
         return parents, organics
 
     def _compute_organics(self):
-        return numpy.array([
+        return np.array([
             el.is_organic for el in self.elements_by_id
         ])
 
@@ -154,7 +157,7 @@ class Hierarchy:
 
     def binding_matrix(self, rels):
         if self._binding_matrix is None:
-            self._binding_matrix = numpy.full((self.n,self.n), numpy.inf)
+            self._binding_matrix = np.full((self.n,self.n), np.inf)
             self.root.weigh_bindings(rels)
             self.root.bind_paths(self._binding_matrix)
         return self._binding_matrix
@@ -162,7 +165,7 @@ class Hierarchy:
     @property
     def organic_edges(self):
         if self._organic_edges is None:
-            e = numpy.zeros((self.n,self.n), dtype=bool)
+            e = np.zeros((self.n,self.n), dtype=bool)
             for orgsys in self.organics:
                 for mem in orgsys.id:
                     e[mem,orgsys.id] = True
@@ -170,22 +173,24 @@ class Hierarchy:
         return self._organic_edges
 
     def _register_by_id(self):
-        mem = numpy.empty(self.n, dtype=object)
+        mem = np.empty(self.n, dtype=object)
         for el in self.flat:
             mem[el.id] = el
         return mem
 
     @classmethod
-    def create(cls, parents, organics=None, ids=None, root=None, weights=None, parents_as_ids=False):
+    def create(cls, parents, organics=None, ids=None, weights=None, parents_as_ids=False):
         n = parents.size
-        indices = numpy.arange(n)
+        indices = np.arange(n)
         if ids is None:
             ids = indices
         elif parents_as_ids:
             id_dict = dict(zip(ids, indices))
-            parents = numpy.array([id_dict[parent] for parent in parents])
-        if organics is None: organics = numpy.zeros(n, dtype=bool)
-        if root is None: root = numpy.flatnonzero(indices == parents)[0]
+            parents = np.array([id_dict[parent] for parent in parents])
+        print(parents)
+        if organics is None: organics = np.zeros(n, dtype=bool)
+        root = np.flatnonzero(indices == parents)[0]
+        # roots = np.flatnonzero(indices == parents)
         if weights is None: weights = indices[::-1]
         nodes = [HierarchyNode(i, ids[i], weight=weights[i]) for i in indices]
         for i in indices:
@@ -293,7 +298,7 @@ class HierarchyElement:
             if len(parent_binding.shape) == 2:
                 parent_binding = parent_binding[0]
             if self.binding_weight == 0:
-                binding_distance = parent_binding * numpy.inf
+                binding_distance = parent_binding * np.inf
             else:
                 binding_distance = parent_binding / self.binding_weight
             self._record_bind_paths(matrix, binding_distance)
@@ -406,7 +411,7 @@ class HierarchyNode(HierarchyElement):
     def outward_transition_probabilities(self, rels):
         selfprob = rels.selfprobs[self.id]
         if selfprob == 1:
-            return numpy.zeros(rels.n)
+            return np.zeros(rels.n)
         else:
             probs = rels.transition_probs[self.id].copy()
             probs[self.id] = 0
@@ -523,7 +528,7 @@ class OrganicSubsystem(HierarchyElement):
 
     def outward_transition_probabilities(self, rels):
         weights = rels.weights[self.id]
-        probs = (rels.transition_probs[self.id] * weights[:,numpy.newaxis]).sum(axis=0)
+        probs = (rels.transition_probs[self.id] * weights[:,np.newaxis]).sum(axis=0)
         probs[self.id] = 0
         probsum = probs.sum()
         if probsum == 0:
@@ -538,13 +543,13 @@ class OrganicSubsystem(HierarchyElement):
             parent_probs = parent_probs.sum(axis=1)
         for i, id in enumerate(self.id):
             selfprob = rels.transition_probs[id,self.id].sum()
-            if not numpy.isclose(selfprob, 1):
+            if not np.isclose(selfprob, 1):
                 parent_probs[i] /= (1 - selfprob)
         return (parent_probs * weights).sum() / weights.sum()
 
     def _record_bind_paths(self, matrix, binding):
-        matrix[self.id,:] = binding[numpy.newaxis,:]
-        matrix[:,self.id] = binding[:,numpy.newaxis]
+        matrix[self.id,:] = binding[np.newaxis,:]
+        matrix[:,self.id] = binding[:,np.newaxis]
 
     def _record_self_bind(self, matrix):
         for mem in self.id:
@@ -589,7 +594,7 @@ class RegionalSystem:
         self.n = n
 
     def to_array(self):
-        assig = numpy.empty(self.n, dtype=int)
+        assig = np.empty(self.n, dtype=int)
         for region in self.regions:
             region.record_assignment(assig)
         return assig
@@ -611,15 +616,14 @@ class TransitionCriterion(HierarchyCriterion):
     def evaluate_nodes(self, hierarchy, rels):
         if hierarchy.organics:
             # cohesion: how well the organic subsystems are integrated
+            # target-weighted average of selfflow-adjusted transition probs
             weighted_orgedges = (
                 hierarchy.organic_edges
-                & ~numpy.diag(numpy.diag(hierarchy.organic_edges))
-            ) * rels.weights[numpy.newaxis,:]
-            # print(hierarchy.organic_membership)
-            # print(weighted_orgedges.sum(axis=1) * (1 - rels.selfprobs))
+                & ~np.diag(np.diag(hierarchy.organic_edges))
+            ) * rels.weights[np.newaxis,:]
             cohesion = (
                 (rels.transition_probs * weighted_orgedges).sum(axis=1)
-                / numpy.where(
+                / np.where(
                     hierarchy.organic_membership,
                     weighted_orgedges.sum(axis=1) * (1 - rels.selfprobs),
                     1
@@ -628,12 +632,18 @@ class TransitionCriterion(HierarchyCriterion):
             cohesion[~hierarchy.organic_membership] = 1
             # print(cohesion)
             # reciprocity: how equal the organic subsystem units are
+            # 
             orgflows = rels.matrix * hierarchy.organic_edges
+            print(orgflows)
             org_inflows = orgflows.sum(axis=0)
             org_outflows = orgflows.sum(axis=1)
-            numer = numpy.abs(org_outflows - org_inflows)
+            print(org_inflows)
+            print(org_outflows)
+            numer = np.abs(org_outflows - org_inflows)
             denom = (org_inflows + org_outflows - 2 * rels.selfrels)
-            denom = numpy.where(numpy.isclose(denom, 0), 1, denom)
+            print(numer)
+            print(denom)
+            denom = np.where(np.isclose(denom, 0), 1, denom)
             reciprocity = 1 - numer / denom
             # print(reciprocity)
             organic_crit = (cohesion * reciprocity) ** self._expon
@@ -641,11 +651,11 @@ class TransitionCriterion(HierarchyCriterion):
         else:
             organic_crit = 1
         hierarchy_crit = (rels.transition_probs / hierarchy.binding_matrix(rels)).sum(axis=1)
-        return numpy.sqrt(hierarchy_crit * organic_crit)
+        return np.sqrt(hierarchy_crit * organic_crit)
         
     def evaluate(self, hierarchy, rels):
         # print(hierarchy_crit)
-        # print(numpy.sqrt(hierarchy_crit * organic_crit))
+        # print(np.sqrt(hierarchy_crit * organic_crit))
         return rels.weighted_sum(self.evaluate_nodes(hierarchy, rels))
 
 
@@ -673,7 +683,6 @@ class AggregationCriterion:
 
 
 class MinimumAggregationCriterion(AggregationCriterion):
-
     def __init__(self, minimum):
         self.minimum = minimum
 
@@ -706,16 +715,16 @@ class MaxflowHierarchyBuilder(HierarchyBuilder):
     deterministic = True
 
     def build(self, rels, **kwargs):
-        probs = (rels.matrix - numpy.diag(rels.selfrels)) / rels.outsums_noself[:,numpy.newaxis]
-        parents = numpy.apply_along_axis(self._argmax, 1, probs).ravel()
+        probs = (rels.matrix - np.diag(rels.selfrels)) / rels.outsums_noself[:,np.newaxis]
+        parents = np.apply_along_axis(self._argmax, 1, probs).ravel()
         # choose hierarchy root proportionally to number of incoming hierarchy edges
-        # parent_counts = numpy.bincount(parents, minlength=rels.n)
+        # parent_counts = np.bincount(parents, minlength=rels.n)
         sqinflows = rels.insums ** 2
         root_probs = sqinflows / sqinflows.sum()
         rootpos = self._argmax(root_probs)
         parents[rootpos] = rootpos
         # find all cycles, declare them organic and add their binding higher
-        organicity = numpy.zeros(rels.n, dtype=bool)
+        organicity = np.zeros(rels.n, dtype=bool)
         cycles = list(graph.parental_cycles(parents))
         organic_heads = []
         for i_try in range(self.DECYCLE_TRIES):
@@ -770,13 +779,89 @@ class MaxflowHierarchyBuilder(HierarchyBuilder):
 
     def _argmax(self, weights):
         return weights.argmax()
+        
+        
+class NewMaxflowHierarchyBuilder(HierarchyBuilder):
+    def build(self, rels, **kwargs):
+        ids = kwargs['ids']
+        ncomps, compmem = scipy.sparse.csgraph.connected_components(
+            rels.matrix, directed=True, connection='weak', return_labels=True
+        )
+        relmatrix = rels.matrix - np.diag(rels.selfrels)
+        parents = np.empty_like(rels.weights, dtype=np.int64)
+        organicity = np.zeros_like(parents, dtype=bool)
+
+        for comp_i in np.unique(compmem):
+            print('subsystem', comp_i)
+            # for each autonomous subsystem
+            in_comp = compmem == comp_i
+            comprels = relmatrix[in_comp,:][:,in_comp].copy()
+            compweights = rels.weights[in_comp].copy()
+            n_units = compweights.size
+            comporgs = np.zeros_like(compweights, dtype=bool)
+            while True:
+                root_i = comprels.sum(axis=0).argmax()
+                # root_i = compweights.argmax()
+                print('root at', ids[root_i]) #, compweights.max())
+                targets = comprels.argmax(axis=1)
+                targets[root_i] = root_i
+                # find strongly connected_components, these will be cycles
+                target_neigh = scipy.sparse.csr_matrix(
+                    (
+                        np.ones(n_units, dtype=bool),
+                        (np.arange(n_units), targets),
+                    ),
+                    shape=(n_units, n_units)
+                )
+                n_strong, strongcomps = scipy.sparse.csgraph.connected_components(
+                    target_neigh,
+                    directed=True,
+                    connection='strong',
+                    return_labels=True
+                )
+                if n_strong == n_units:
+                    # no connected components = no cycles, hierarchy is complete
+                    break
+                # component IDs that mark cycles
+                cyclecomps = np.flatnonzero(np.bincount(strongcomps) > 1)
+                # which cycle which unit is in
+                cycle_mem = np.where(
+                    np.isin(strongcomps, cyclecomps),
+                    strongcomps,
+                    -1
+                )
+                # select cycle with smallest weight
+                sel_cycle_i = min(cyclecomps,
+                    key=lambda comp: compweights[cycle_mem == comp].sum()
+                )
+                sel_cycle_mem = (cycle_mem == sel_cycle_i)
+                # contract the system to the unit with maximum weight
+                cycle_is = np.flatnonzero(sel_cycle_mem)
+                main_i = cycle_is[compweights[cycle_is].argmax()]
+                other_is = np.array([i for i in cycle_is if i != main_i])
+                print('contracting cycle', ids[in_comp][sel_cycle_mem], ids[main_i], ids[other_is])
+                comporgs[other_is] = main_i
+                # contract weights
+                compweights[main_i] += compweights[other_is].sum()
+                compweights[other_is] = 0
+                # contract relations
+                comprels[:,main_i] += comprels[:,other_is].sum(axis=1)
+                comprels[main_i,:] += comprels[other_is,:].sum(axis=0)
+                comprels[:,other_is] = 0
+                comprels[other_is,:] = 0
+                comprels[other_is,main_i] = 1  # to ensure stable binding into the system
+                comprels[main_i,main_i] = 0
+            in_comp_is = np.flatnonzero(in_comp)
+            parents[in_comp_is] = in_comp_is[targets]
+            organicity[in_comp_is[comporgs]] = True
+        return Hierarchy.create(parents, organicity, weights=rels.weights, **kwargs)
 
 
 class MaxflowStochasticHierarchyBuilder(MaxflowHierarchyBuilder):
     deterministic = False
 
     def _argmax(self, weights):
-        return numpy.random.choice(len(weights), 1, p=weights)[0]
+        return np.random.choice(len(weights), 1, p=weights)[0]
 
 
 class HierarchyOperator:
@@ -784,9 +869,9 @@ class HierarchyOperator:
         if isinstance(source, Hierarchy):
             source = source.flat
         assert len(exclude) < len(source)
-        sel = numpy.random.choice(source, 1)[0]
+        sel = np.random.choice(source, 1)[0]
         while sel in exclude:
-            sel = numpy.random.choice(source, 1)[0]
+            sel = np.random.choice(source, 1)[0]
         return sel
 
 
@@ -805,14 +890,14 @@ class HierarchyModifier(HierarchyOperator):
             return None
         else:
             return hierarchy.elements_by_id[
-                numpy.searchsorted(cumprobs, numpy.random.rand() * probsum)
+                np.searchsorted(cumprobs, np.random.rand() * probsum)
             ]
 
     def _select_bound_to_limited(self, source, rels, binder, exclude=[]):
         if isinstance(source, Hierarchy):
             source = source.flat
         probs = binder.outward_transition_probabilities(rels)
-        weights = numpy.array([
+        weights = np.array([
             probs[element.id].sum() if element not in exclude else 0
             for element in source
         ])
@@ -822,13 +907,13 @@ class HierarchyModifier(HierarchyOperator):
             return None
         else:
             return source[
-                numpy.searchsorted(cumweights, numpy.random.rand() * wsum)
+                np.searchsorted(cumweights, np.random.rand() * wsum)
             ]
 
     def _select_high_inflow(self, source, rels, exclude=[]):
         if isinstance(source, Hierarchy):
             source = source.flat
-        insums = numpy.array([
+        insums = np.array([
             el.inflow_sum(rels) if el not in exclude else 0
             for el in source
         ])
@@ -838,12 +923,12 @@ class HierarchyModifier(HierarchyOperator):
             return None
         else:
             return source[
-                numpy.searchsorted(cuminsums, numpy.random.rand() * insumsum)
+                np.searchsorted(cuminsums, np.random.rand() * insumsum)
             ]
 
     def _select_random_organic(self, hierarchy):
         if hierarchy.organics:
-            return numpy.random.choice(hierarchy.organics, 1)[0]
+            return np.random.choice(hierarchy.organics, 1)[0]
         else:
             return None
 
@@ -950,7 +1035,7 @@ class OrganicSubsystemDestructor(HierarchyModifier):
                 orgsys.discard_child(child)
                 redir = self._select_bound_to_limited(nodes, rels, child)
                 if redir is None:
-                    redir = numpy.random.choice(nodes, 1)[0]
+                    redir = np.random.choice(nodes, 1)[0]
                 redir.add_child(child)
             return True
 
@@ -1002,14 +1087,14 @@ class OrganicSubsystemSubtractor(HierarchyModifier):
                     elig_weights.append(orgsys.size)
             if not elig_orgs:
                 return
-            elig_probs = numpy.array(elig_weights)
+            elig_probs = np.array(elig_weights)
             # select the system
-            selsys = numpy.random.choice(
+            selsys = np.random.choice(
                 elig_orgs, 1,
                 p=(elig_probs / elig_probs.sum())
             )[0]
             # TIP select node with low fitness contribution?
-            node = numpy.random.choice(selsys.members, 1)[0]
+            node = np.random.choice(selsys.members, 1)[0]
             # print('removing', node, 'from', selsys, 'and setting it as a child')
             # remove it from the system and add it as a child
             orgsys = node.subsystem
@@ -1107,7 +1192,7 @@ class HierarchyCrossover(HierarchyOperator):
     def _select_crossover_element(self, hier, rels):
         cweight = 0
         i = 0
-        while not abs(cweight - .5) * 2 < numpy.random.rand():
+        while not abs(cweight - .5) * 2 < np.random.rand():
             crossel = self._select_random_element(hier)
             cweight = crossel.tree_weight(rels)
             i += 1
@@ -1177,7 +1262,7 @@ class GeneticHierarchyBuilder(HierarchyBuilder):
     def evaluate(self, solutions, rels, fitnesses=None):
         if fitnesses is None:
             fitnesses = []
-        return numpy.concatenate((fitnesses, numpy.array([
+        return np.concatenate((fitnesses, np.array([
             self.criterion.evaluate(sol, rels)
             for sol in solutions[len(fitnesses):]
         ])))
@@ -1185,7 +1270,7 @@ class GeneticHierarchyBuilder(HierarchyBuilder):
     def crossover(self, source, rels):
         for i in range(int(self.crossover_rate * self.population)):
             # print('cross', i)
-            sol1, sol2 = numpy.random.choice(source, 2, replace=False)
+            sol1, sol2 = np.random.choice(source, 2, replace=False)
             # print(sol1.structure_string())
             # print(sol2.structure_string())
             yield self.crosser.crossover(sol1, sol2, rels)
@@ -1195,8 +1280,8 @@ class GeneticHierarchyBuilder(HierarchyBuilder):
         n_new = int(self.mutation_rate * self.population)
         i = 0
         while i < n_new:
-            oper = numpy.random.choice(self.mutators, 1, p=self.mutator_probs)[0]
-            chosen = numpy.random.choice(source, 1)[0].copy()
+            oper = np.random.choice(self.mutators, 1, p=self.mutator_probs)[0]
+            chosen = np.random.choice(source, 1)[0].copy()
             success = oper.modify(chosen, rels)
             if success:
                 i += 1
@@ -1204,12 +1289,12 @@ class GeneticHierarchyBuilder(HierarchyBuilder):
 
     def select(self, solutions, fitnesses):
         n_elit = int(self.elitism_rate * self.population)
-        elitist_is = numpy.argsort(fitnesses)[-n_elit:]
-        others = numpy.ones(len(solutions), dtype=bool)
+        elitist_is = np.argsort(fitnesses)[-n_elit:]
+        others = np.ones(len(solutions), dtype=bool)
         others[elitist_is] = False
-        scores = numpy.random.rand(len(solutions)) * fitnesses * others
+        scores = np.random.rand(len(solutions)) * fitnesses * others
         all_is = (
             list(elitist_is)
-            + list(numpy.argsort(scores)[-(self.population-len(elitist_is)):])
+            + list(np.argsort(scores)[-(self.population-len(elitist_is)):])
         )
         return [solutions[i] for i in all_is], fitnesses[all_is]

@@ -24,7 +24,7 @@ parser.add_argument('-w', '--weight-col', default='weight',
     help='unit weight column in hierarchy file')
 parser.add_argument('-r', '--region-col', default='region',
     help='name of the aggregated region column in the output file')
-parser.add_argument('-m', '--min-weight', default=None,
+parser.add_argument('-m', '--min-weight', default=None, type=float,
     help='minimum weight of region; if not set, determine the optimal one from data by finding the most significant gap')
 parser.add_argument('-s', '--min-weight-sel-opts', default=0, type=int,
     help='let the user select the optimal weight from this many options; only has effect when -m is not set')
