@@ -1,9 +1,12 @@
+# import itertools
 
 import numpy
 import scipy.stats
 import shapely.geometry
 import shapely.geometry.base
 import shapely.prepared
+import shapely.strtree
+import shapely.ops
 
 from . import vector
 from . import voronoi
@@ -67,9 +70,13 @@ class Antenna:
     def get_param(self, name):
         if name in self.VAR_NAMES:
             return self.__dict__[name]
-    
+
     def get_param_dict(self):
         return {name : self.__dict__[name] for name in self.VAR_NAMES}
+
+    def set_param(self, name, value):
+        if name in self.VAR_NAMES:
+            self.__dict__[name] = value
 
     def update(self):
         self._strength = scipy.stats.norm(loc=self.strength, scale=self.strength_sigma).rvs
@@ -116,7 +123,7 @@ class VariableAngleAntenna(Antenna):
     def __init__(self, *args, principal_angle=0, **kwargs):
         self.principal_angle = principal_angle
         super().__init__(*args, **kwargs)
-    
+
 
 class FixedAngleAntenna(Antenna):
     VAR_NAMES = ['strength', 'range', 'narrowness']
@@ -263,7 +270,7 @@ class AntennaNetwork:
             self.strengths_from_distangles(distances, angles),
             p=p
         )
-    
+
     def copy(self):
         return AntennaNetwork(self.extent, [a.copy() for a in self.antennas])
 
@@ -274,15 +281,16 @@ class AntennaNetwork:
         else:
             return (strengths * p) >= strengths.max(axis=0)
 
-    def plot(self, ax):
+    def plot(self, ax, annotated=True):
         ax.scatter(
             self._antenna_locs[:,0],
             self._antenna_locs[:,1],
             c=['C' + str(i % 10) for i in range(self.n_antennas)],
             s=64,
         )
-        for antenna in self.antennas:
-            antenna.plot_annotation(ax)
+        if annotated:
+            for antenna in self.antennas:
+                antenna.plot_annotation(ax)
 
     @property
     def n_antennas(self):
@@ -295,7 +303,96 @@ class AntennaNetwork:
         return '<AntennaNetwork' + repr(self.antennas) + '>'
 
 
+class ObservationWeighter:
+    def __init__(self, observations, extent):
+        self.extent = extent
+        self.observations = observations
+        self.weights = self._calculate_weights()
+
+    def plot(self, ax, colors):
+        pass
+
+class VoronoiAreaObservationWeighter(ObservationWeighter):
+    def _calculate_weights(self):
+        self.cells = list(voronoi.cells(self.observations, self.extent))
+        return numpy.array([cell.area for cell in self.cells])
+
+    def plot(self, ax, colors):
+        for cell, color in zip(self.cells, colors):
+            if not cell.is_empty:
+                ax.plot(*cell.exterior.xy, color=color, lw=0.25)
+
+
+class ClusteredRandomObservationWeighter(ObservationWeighter):
+    def __init__(self, *args, weight_var=0.25, clustering=50, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.weight_var = weight_var
+        self._weight_var = scipy.stats.norm(scale=self.weight_var)
+        self.clustering = clustering
+        self.range = self._dispersion() / self.clustering
+        self._dist_var = scipy.stats.norm(scale=self.range)
+
+    def _calculate_weights(self):
+        n_observations = self.observations.shape[0]
+        weights = numpy.ones(n_observations) / n_observations
+        for i in range(n_observations):
+            centroid = (
+                self.observations
+                * (weights + _weight_var.rvs(n_observations)).reshape(-1, 1)
+            ).sum(axis=1)
+            dists = numpy.linalg.norm(self.observations - centroid, axis=0)
+            weights += self._dist_var.pdf(dists)
+            weights /= weights.sum()
+        return weights
+
+    def _dispersion(self):
+        centroid = self.observations.mean(axis=1)
+        return numpy.linalg.norm(self.observations - centroid, axis=0).mean()
+
+
 class ObservationSystem:
+    def __init__(self, extent, targets, observations, weighter_class=None):
+        self.extent = extent
+        self.targets = targets
+        self.observations = observations
+        self.dirvectors = (
+            self.observations[numpy.newaxis,:,:]
+            - self.targets[:,numpy.newaxis,:]
+        )
+        self.distances = vector.length(self.dirvectors)
+        self.angles = vector.angle(self.dirvectors)
+        self.unitvectors = self.dirvectors / numpy.where(
+            self.distances == 0, 1, self.distances
+        )[:,:,numpy.newaxis]
+        if weighter_class is not None:
+            self.weighter_class = weighter_class
+            self.weighter = self.weighter_class(self.observations, self.extent)
+            self.weights = self.weighter.weights
+        else:
+            self.weighter_class = None
+            self.weighter = None
+
+    @property
+    def n_observations(self):
+        return self.observations.shape[0]
+
+    @classmethod
+    def create_random(cls, targets, n_observations, extent, **kwargs):
+        return cls(extent, targets,
+            random_locations(extent, n_observations),
+            **kwargs,
+        )
+
+    @classmethod
+    def create_grid(cls, targets, gridsize, extent, **kwargs):
+        return cls(extent, targets,
+            rectgrid_locations(extent, gridsize),
+            **kwargs,
+        )
+
+
+class AntennaObservationSystem(ObservationSystem):
+    DEFAULT_WEIGHTER_CLASS = VoronoiAreaObservationWeighter
     PARAM_NAMES = {
         Mast : ['strength', 'range', 'principal_angle', 'narrowness'],
         DirectedMast : ['strength', 'range', 'narrowness'],
@@ -305,27 +402,22 @@ class ObservationSystem:
         DirectedMast : FixedAngleAntenna,
     }
 
-    def __init__(self, extent, masts, observations, weighter_class, add_antennas=False):
-        self.extent = extent
+    def __init__(self, extent, masts, observations, add_antennas=False, **kwargs):
+        mast_locs = self._masts_to_locations(masts)
+        if add_antennas:
+            observations = numpy.concatenate((
+                observations, numpy.unique(mast_locs, axis=0)
+            ))
+        super().__init__(extent, mast_locs, observations, **kwargs)
         self.masts = masts
         self.mast_type = type(self.masts[0])
-        # print(set(tuple(mast.location) for mast in self.masts))
-        if add_antennas:
-            self.observations = numpy.concatenate((
-                observations,
-                numpy.array(list(set(tuple(mast.location) for mast in self.masts)))
-            ))
-        else:
-            self.observations = observations
-        self.dirvectors = numpy.stack([
-            mast.dirvectors(self.observations)
-            for mast in self.masts
-        ])
-        self.distances = vector.length(self.dirvectors)
-        self.angles = vector.angle(self.dirvectors)
-        self.unitvectors = self.dirvectors / numpy.where(self.distances == 0, 1, self.distances)[:,:,numpy.newaxis]
-        self.weighter = weighter_class(self.observations, self.extent)
-        self.weights = self.weighter.weights
+
+    @staticmethod
+    def _masts_to_locations(masts):
+        return numpy.stack([mast.location for mast in masts])
+
+    def replaced_observations(self, newobs):
+        return type(self)(self.extent, self.masts, newobs, weighter_class=self.weighter_class)
 
     # @property
     # def weights(self):
@@ -357,59 +449,31 @@ class ObservationSystem:
             return connmatrix
 
     @property
-    def n_observations(self):
-        return self.observations.shape[0]
-
-    @property
     def n_masts(self):
         return len(self.masts)
 
-    @classmethod
-    def create(cls, network, locations, weighter_class, extent=None, **kwargs):
-        if extent is None: extent = network.extent
-        return cls(
-            extent,
-            network.get_masts(),
-            locations,
-            weighter_class=weighter_class,
-            **kwargs,
-        )
-
-    @classmethod
-    def create_random(cls, network, n_observations, weighter_class, extent=None, **kwargs):
-        if extent is None: extent = network.extent
-        return cls.create(network,
-            random_locations(extent, n_observations),
-            weighter_class=weighter_class,
-            extent=extent,
-            **kwargs,
-        )
-
-    @classmethod
-    def create_grid(cls, network, gridsize, weighter_class, extent=None, **kwargs):
-        if extent is None: extent = network.extent
-        return cls.create(network,
-            rectgrid_locations(extent, gridsize),
-            weighter_class=weighter_class,
-            extent=extent,
-            **kwargs,
-        )
+   # @classmethod
+    # def create_from_connfracs(cls, masts, connfracs, extent, **kwargs):
+        # mastwts = connfracs ** 2
+        # mastwts /= mastwts.sum(axis=0)[numpy.newaxis,:]
+        # mast_locs = numpy.stack([mast.location for mast in masts])
+        # user_locs = (mastwts[:,:,numpy.newaxis] * mast_locs[:,numpy.newaxis,:]).sum(axis=0)
+        # return cls(extent, masts, user_locs, **kwargs)
 
     def plot(self, ax, network=None):
         if network is None:
-            colors = 'b.'
-            cellcolors = itertools.repeat('#bbbbbb')
+            colors = EndlessCycle('C1', length=self.n_observations) #'b.'
+            cellcolors = EndlessCycle('#bbbbbb', length=self.n_observations)
         else:
             connections = self.connections(network)
             colors = ['C' + str(i % 10) for i in connections]
             cellcolors = colors
-        self.weighter.plot(ax, cellcolors)
-        ax.scatter(
-            self.observations[:,0],
-            self.observations[:,1],
-            c=colors,
-            s=5 * self.weights
-        )
+        if self.weighter is not None:
+            self.weighter.plot(ax, cellcolors)
+            s = 5 * self.weights
+        else:
+            s = numpy.full(self.n_observations, 5)
+        ax.scatter(self.observations[:,0], self.observations[:,1], c=colors, s=s)
         if network is not None:
             network.plot(ax)
 
@@ -423,7 +487,7 @@ class ObservationSystem:
                 c=('C' + str(i % 10)),
                 s=9
             )
-    
+
     def _plotting_strengths(self, network, mode='strength'):
         raws = self.strengths(network)
         if mode == 'strength':
@@ -437,52 +501,106 @@ class ObservationSystem:
             raise ValueError('unknown strength plotting mode')
 
 
-class ObservationWeighter:
-    def __init__(self, observations, extent):
+class EndlessCycle:
+    def __init__(self, value, length=None):
+        self._value = value
+        self._length = length
+
+    def __len__(self):
+        return self._length
+
+    def __getitem__(self, i):
+        return self._value
+
+    def __iter__(self):
+        if self._length:
+            for i in range(self._length):
+                yield self._value
+        else:
+            while True:
+                yield self._value
+
+
+class DensityMap:
+    def __init__(self, areas, weights, extent=None):
+        if extent is None:
+            extent = shapely.ops.cascaded_union(areas)
+        self.areas = areas
+        self._area_tree = shapely.strtree.STRtree(self.areas)
+        self.centroids = numpy.stack([
+            numpy.array(area.centroid) for area in self.areas
+        ])
+        self.weights = weights
         self.extent = extent
-        self.observations = observations
-        self.weights = self._calculate_weights()
 
-    def plot(self, ax, colors):
-        pass
+    def plot(self, ax, cmap, deltas=None):
+        patches = []
+        import matplotlib.patches
+        import matplotlib.collections
+        for i in range(len(self.areas)):
+            patches.append(matplotlib.patches.Polygon(
+                numpy.array(self.areas[i].exterior.xy).T,
+                True,
+            ))
+            centroid = numpy.array(self.areas[i].centroid)
+            label = '{:g}'.format(self.weights[i])
+            # if deltas is not None:
+                # label += '/{:.2g}'.format(deltas[i])
+            ax.annotate(label, xy=centroid, xytext=centroid, horizontalalignment='center', verticalalignment='center')
+        coll = matplotlib.collections.PatchCollection(patches, alpha=0.2)
+        if deltas is not None:
+            coll.set_color(cmap((deltas + 1) * .5))
+        ax.add_collection(coll)
 
+    # def presence_matrix(self, user_cells):
+        # overlaps = numpy.zeros((len(self.areas), len(user_cells)))
+        # for i, cell in enumerate(user_cells):
+            # cell_area = cell.area
+            # for area in self._area_tree.query(cell):
+                # inters_area = area.intersection(cell).area
+                # overlaps[self.areas.index(area),i] = inters_area / cell_area
+        # totover = overlaps.sum(axis=0)
+        # return overlaps / numpy.where(totover, totover, 1)[numpy.newaxis,:]
 
-class VoronoiAreaObservationWeighter(ObservationWeighter):
-    def _calculate_weights(self):
-        self.cells = list(voronoi.cells(self.observations, self.extent))
-        return numpy.array([cell.area for cell in self.cells])
+    # def deltas(self, presences):
+        # presences_in_areas = presences.sum(axis=1)
+        # return (
+            # (self.weights - presences_in_areas)
+            # / (self.weights + presences_in_areas)
+        # )
 
-    def plot(self, ax, colors):
-        for cell, color in zip(self.cells, colors):
-            ax.plot(*cell.exterior.xy, color=color, lw=0.25)
+    def deltas(self, observations):
+        counts = numpy.zeros(len(self.areas))
+        for obs in observations:
+            for area in self._area_tree.query(shapely.geometry.Point(obs)):
+                counts[self.areas.index(area)] += 1
+        diffs = self.weights - counts
+        return numpy.sign(diffs) * numpy.sqrt(numpy.abs((diffs / (self.weights + counts))))
 
+    @classmethod
+    def from_system_as_grid(cls, system, gridsize, use_weights=False):
+        # create a rectangular grid of cells
+        gridlocs = rectgrid_locations(system.extent, gridsize)
+        areas = list(voronoi.cells(gridlocs, system.extent))
+        points = [shapely.geometry.Point(obs) for obs in system.observations]
+        point_weights = system.weights if use_weights else numpy.ones(len(points))
+        point_weight_dict = dict(zip(
+            (tuple(pt) for pt in system.observations),
+            point_weights,
+        ))
+        tree = shapely.strtree.STRtree(points)
+        area_weights = [
+            sum(point_weight_dict[pt.coords[0]] for pt in tree.query(area))
+            for area in areas
+        ]
+        return cls(areas, area_weights, system.extent)
 
-class ClusteredRandomObservationWeighter(ObservationWeighter):
-    def __init__(self, *args, weight_var=0.25, clustering=50, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.weight_var = weight_var
-        self._weight_var = scipy.stats.norm(scale=self.weight_var)
-        self.clustering = clustering
-        self.range = self._dispersion() / self.clustering
-        self._dist_var = scipy.stats.norm(scale=self.range)
-
-    def _calculate_weights(self):
-        n_observations = self.observations.shape[0]
-        weights = numpy.ones(n_observations) / n_observations
-        for i in range(n_observations):
-            centroid = (
-                self.observations
-                * (weights + _weight_var.rvs(n_observations)).reshape(-1, 1)
-            ).sum(axis=1)
-            dists = numpy.linalg.norm(self.observations - centroid, axis=0)
-            weights += self._dist_var.pdf(dists)
-            weights /= weights.sum()
-        return weights
-
-    def _dispersion(self):
-        centroid = self.observations.mean(axis=1)
-        return numpy.linalg.norm(self.observations - centroid, axis=0).mean()
-
+    # def to_observation_system(self, observations, **kwargs):
+        # return ObservationSystem(self.extent,
+            # [WeightedMast(centroid, weight) for centroid in self.centroids],
+            # observations,
+            # **kwargs
+        # )
 
 
 class AntennaNetworkEstimator:
@@ -494,7 +612,7 @@ class AntennaNetworkEstimator:
         return (
             user_fs[:,numpy.newaxis,:] * user_probs[numpy.newaxis,:,:]
         ).sum(axis=-1) / user_probs.sum(axis=1)
-    
+
     def _network_from_params(self, system, params, antenna_class=None):
         if antenna_class is None:
             antenna_class = system.get_antenna_class()
@@ -507,19 +625,30 @@ class AntennaNetworkEstimator:
             )
             for i, mast in enumerate(system.masts)
         ])
-    
+
     def _network_from_list(self, system, antennas):
         return AntennaNetwork(system.extent, antennas)
 
     @staticmethod
-    def _estimate_kappa(rbar, n_iter=3):
+    def _estimate_kappa(rbar, n_iter=10):
         rbarsq = rbar ** 2
         kappa = rbar * (2 - rbarsq) / (1 - rbarsq)
         for i in range(n_iter):
             apkappa = besselrat(kappa)
-            apkappadelta = numpy.where(kappa == 0, 0, apkappa)
+            apkappadelta = numpy.where(kappa == 0, 0, apkappa) / kappa
             kappa -= (apkappa - rbar) / (1 - apkappa ** 2 - apkappadelta)
         return kappa
+
+    @staticmethod
+    def _find_optimal(rawfx, targets, maxval):
+        tgtmean = targets.mean()
+        def errf(param):
+            raws = rawfx(param)
+            raws *= (tgtmean / raws.mean())
+            return ((raws - targets) ** 2).sum()
+        return scipy.optimize.minimize_scalar(
+            errf, method='bounded', bounds=(0, maxval)
+        ).x
 
 
 class InitialNetworkEstimator(AntennaNetworkEstimator):
@@ -541,29 +670,103 @@ class InitialNetworkEstimator(AntennaNetworkEstimator):
                 system.unitvectors * dominances[:,:,numpy.newaxis]
             ).sum(axis=1)
         params = {}
+        if 'narrowness' in names:
+            rbars = vector.length(sincossums) / domination_sum
+            params['narrowness'] = cls._estimate_kappa(rbars)
+        if 'principal_angle' in names:
+            params['principal_angle'] = vector.angle(sincossums) % (2 * numpy.pi)
         if 'range' in names:
-            mdist = system.distances.mean()
             params['range'] = (
                 (system.distances * dominances).sum(axis=1)
-                / (domination_sum * mdist)
+                # / (domination_sum * mdist)
+                / (domination_sum)
             )
+            # dummy_net = DummyNetworkEstimator().estimate(system)
+            # dummy_signals = system.strengths(dummy_net)
+            # dummy_domin = dummy_signals / dummy_signals.sum(axis=0)[numpy.newaxis,:]
+            # domin_fracs = dominances / dummy_domin
+            # maxd = system.distances.max()
+            # # # mdists = (system.distances ** 2).sum(axis=0)
+            # kappa = params['narrowness'][:,numpy.newaxis]
+            # alphavec = sincossums / vector.length(sincossums)[:,numpy.newaxis]
+            # angagnosts = (dominances * scipy.special.iv(0, kappa) / numpy.exp(kappa * (
+                # alphavec[:,0][:,numpy.newaxis] * system.unitvectors[:,:,0] +
+                # alphavec[:,1][:,numpy.newaxis] * system.unitvectors[:,:,1]
+            # ))).flatten()
+            # dists = system.distances.flatten()
+            # gamma = cls._find_optimal(
+                # (lambda gamma: gamma / (dists ** 2 + gamma ** 2)),
+                # angagnosts,
+                # maxval=maxd
+            # ) / numpy.pi
+
+            # import matplotlib.pyplot as plt
+            # plt.scatter(system.distances.flatten(), dominances.flatten())
+            # plt.scatter(system.distances.flatten(), angagnosts.flatten())
+            # plt.title(gamma)
+            # plt.show()
+            # # from mpl_toolkits.mplot3d import Axes3D
+            # for i in range(dominances.shape[0]):
+                # kappa = params['narrowness'][i]
+                # alphavec = sincossums[i] / vector.length(sincossums[i])
+                # dists = system.distances[i]
+                # sqdists = dists ** 2
+                # # # targets = (dominances[i] * scipy.special.iv(0, kappa) / numpy.exp(kappa * (
+                    # # # alphavec[0] * system.unitvectors[i,:,0] +
+                    # # # alphavec[1] * system.unitvectors[i,:,1]
+                # # # ))) # * mdists
+                # angagnosts = (dominances[i] * scipy.special.iv(0, kappa) / numpy.exp(kappa * (
+                    # alphavec[0] * system.unitvectors[i,:,0] +
+                    # alphavec[1] * system.unitvectors[i,:,1]
+                # )))
+                # sel = angagnosts >= numpy.percentile(angagnosts, 90)
+                # # domang = angagnosts[sel] * sqdists[sel]
+                # # agnosumhalf = angagnosts[sel].sum() / 2
+                # # def errf(gamma):
+                    # # return abs((domang / (gamma ** 2 + sqdists[sel])).sum() - agnosumhalf / 2)
+                # # gamma = scipy.optimize.minimize_scalar(
+                    # # errf, method='bounded', bounds=(0, maxd)
+                # # ).x
+                # # # targets = dominances[i][sel]
+                # gamma = cls._find_optimal(
+                    # (lambda gamma: gamma / (sqdists[sel] + gamma ** 2)),
+                    # angagnosts[sel],
+                    # maxval=maxd
+                # )
+                # gamma = 8
+                # print(gamma)
+                # pred = (gamma / (sqdists + gamma ** 2))
+                # pred *= (angagnosts[sel].max() / pred[sel].max())
+                # # # # print(kappa, alphavec)
+                # # print(gamma)
+                # # # plt.scatter(dists, dominances[i])
+                # plt.scatter(dists[sel], angagnosts[sel])
+                # # plt.scatter(dists[sel], targets[sel])
+                # plt.scatter(dists[sel], pred[sel])
+                # # # plt.scatter(dists, domin_fracs[i])
+                # # # plt.title(str(dummy_net.antennas[i]))
+                # # # plt.scatter(dists, pred)
+                # # # fig = plt.figure()
+                # # # ax = fig.add_subplot(111, projection='3d')
+                # # # # ax.plot(system.observations[:,0],system.observations[:,1],dominances[i],'b.')
+                # # # # ax.plot(system.observations[:,0],system.observations[:,1],targets,'b.')
+                # # # ax.plot(system.observations[:,0],system.observations[:,1],targets,'r.')
+                # # # ax.plot(system.observations[sel,0],system.observations[sel,1],targets[sel],'b.')
+                # # # plt.title('{:.4f}/{:.4f}'.format(params['range'][i], dists[sel].mean()))
+                # plt.title(i)
+                # plt.show()
         if 'strength' in names:
             params['strength'] = (
                 (system.weights[numpy.newaxis,:] * dominances).sum(axis=1)
                 / system.weights.sum()
             )
             params['strength'] /= params['strength'].sum()
-        if 'narrowness' in names:
-            rbars = vector.length(sincossums) / domination_sum
-            params['narrowness'] = cls._estimate_kappa(rbars)
-        if 'principal_angle' in names:
-            params['principal_angle'] = vector.angle(sincossums)
         return params
 
-        
+
 class SignalBasedNetworkEstimator(AntennaNetworkEstimator):
     CAP_N = 5
-    
+
     def _estimate_antenna(self, mast, signals, distances, unitvectors, obs, names, antenna_class):
         sqdists = distances ** 2
         distagnosts = signals * sqdists
@@ -600,22 +803,11 @@ class SignalBasedNetworkEstimator(AntennaNetworkEstimator):
         params['range'] = gamma
         params['strength'] = (signals / unscaled).mean()
         return antenna_class(mast, **params)
-    
-    @staticmethod
-    def _find_optimal(rawfx, targets, maxval):
-        tgtmean = targets.mean()
-        def errf(param):
-            raws = rawfx(param)
-            raws *= (tgtmean / raws.mean())
-            return ((raws - targets) ** 2).sum()
-        return scipy.optimize.minimize_scalar(
-            errf, method='bounded', bounds=(0, maxval)
-        ).x
-        
+
     def estimate(self, system, signals, names=None):
         if names is None:
             names = system.get_param_names()
-        return self._network_from_list(system, [
+        antennas = [
             self._estimate_antenna(
                 mast=system.masts[i],
                 signals=signals[i],
@@ -626,120 +818,13 @@ class SignalBasedNetworkEstimator(AntennaNetworkEstimator):
                 antenna_class=system.get_antenna_class(),
             )
             for i in range(system.distances.shape[0])
-        ])
-        
-        # angulars = signals * system.distances ** 2
-        # n_cap = 5
-        # cap_is = numpy.argpartition(angulars, -n_cap, axis=1)[:,-n_cap:]
-        # n_antennas = system.distances.shape[0]
-        # for i in range(n_antennas):
-            
-            # cosfis = system.unitvectors[i,:,0]
-            # sinfis = system.unitvectors[i,:,1]
-            # dists = system.distances[i]
-            # sqdists = dists ** 2
-            # sigs = signals[i]
-            
-        
-            # alphavec = system.unitvectors[i,cap_is[i],:].mean(axis=0)
-            # cosalpha, sinalpha = alphavec / vector.length(alphavec)
-            # q = cosalpha * cosfis + sinalpha * sinfis
-            # # kappas = numpy.linspace(0, 10, 200)
-            # angs = angulars[i]
-            # angmean = angulars[i].mean()
-            # def errf(kappa):
-                # raws = numpy.exp(kappa * q) / scipy.special.iv(0, kappa)
-                # raws *= (angmean / raws.mean())
-                # return ((raws - angs) ** 2).sum()
-            # kappa = scipy.optimize.minimize_scalar(errf, method='bounded', bounds=(0, 42)).x
-            # besselkappa = scipy.special.iv(0, kappa)
-            # angexp = numpy.exp(kappa * q)
-            # distsigs = sigs * besselkappa / angexp
-            # distsigmean = distsigs.mean()
-            # def errf_gamma(gamma):
-                # raws = gamma / (sqdists + gamma ** 2)
-                # raws *= (distsigmean / raws.mean())
-                # return ((raws - distsigs) ** 2).sum()
-            # gamma = scipy.optimize.minimize_scalar(errf_gamma, method='bounded', bounds=(0, dists.max())).x
-            # unscaled = gamma * angexp / (2 * numpy.pi ** 2 * besselkappa * (sqdists + gamma ** 2))
-            # P = (sigs / unscaled).mean()
-            # print(P, gamma, numpy.degrees(vector.angle(alphavec)), kappa)
-            # # print(gamma, numpy.degrees(vector.angle(alphavec)), kappa)
-            # # # errs = []
-            # # # for kappa in kappas:
-                # # # errs.append(errf(kappa))
-            # # import matplotlib.pyplot as plt
-            # # from mpl_toolkits.mplot3d import Axes3D
-            # # fig = plt.figure()
-            # # ax = fig.add_subplot(111, projection='3d')
-            # # ax.plot(system.observations[:,0], system.observations[:,1], numpy.log(sigs))
-            # # ax.plot(system.observations[:,0], system.observations[:,1], numpy.log(unscaled * P))
-            # # print(sigs / unscaled)
-            # # plt.scatter(dists, numpy.log(distsigs))
-            # # # plt.scatter(kappas, errs)
-            # # # plt.scatter(system.distances[i], numpy.log(signals[i]))
-            # # # plt.scatter(system.angles[i], signals[i] * system.distances[i] ** 2)
-            # # # plt.scatter(vector.angle(alphavec), signals[i].mean())
-            # plt.show()
-        # raise RuntimeError
-        
-        
-            # # def errf(x0):
-                # # P, gamma, kappa, alpha = x0
-                # # return ((P * gamma * numpy.exp(kappa * (cosfis * numpy.cos(alpha) + sinfis * numpy.sin(alpha))) / (2 * numpy.pi * scipy.special.iv(0, kappa) * (sqdists + gamma ** 2)) - sigs) ** 2).sum()
-            # # optres = scipy.optimize.minimize(errf,
-                # # (1 / n_antennas, 1, 0, 0),
-                # # bounds=[
-                    # # (0, 1),
-                    # # (0, dists.max()),
-                    # # (0, 42),
-                    # # (0, 2 * numpy.pi)
-                # # ],
-                # # method='SLSQP'
-            # # )
-            # # print(optres)
-            # # raise RuntimeError
-            
-        # if 'narrowness' in names or 'principal_angle' in names:
-            # sincossums = (
-                # system.unitvectors * weights[:,:,numpy.newaxis]
-            # ).sum(axis=1)
-        # params = {}
-        # if 'narrowness' in names:
-            # # print(vector.length(sincossums / weight_sums[:,numpy.newaxis]))
-            # # print(vector.length(system.unitvectors.sum(axis=1) / system.n_observations))
-            # # print((
-                # # vector.length(sincossums / weight_sums[:,numpy.newaxis])
-                # # / vector.length(system.unitvectors.sum(axis=1) / system.n_observations)
-            # # ))
-            # rbars = vector.length(sincossums / weight_sums[:,numpy.newaxis])
-            # # rbars = (
-                # # vector.length(sincossums / weight_sums[:,numpy.newaxis])
-                # # / vector.length(system.unitvectors.sum(axis=1) / system.n_observations)
-            # # )
-            # params['narrowness'] = cls._estimate_kappa(rbars, n_iter=10)
-            # # auxkappa = cls._estimate_kappa(vector.length(system.unitvectors.sum(axis=1) / system.n_observations), n_iter=10)
-        # if 'principal_angle' in names:
-            # params['principal_angle'] = vector.angle(sincossums)
-        # print(params['narrowness'])
-        # # print(auxkappa)
-        # # print(params['narrowness'] / (1 + auxkappa))
-        # # print(cls._estimate_kappa(, n_iter=10))
-        # print(numpy.degrees(params['principal_angle']))
-        # raise RuntimeError
-        # if 'range' in names:
-            # mdist = system.distances.mean()
-            # params['range'] = (
-                # (system.distances * dominances).sum(axis=1)
-                # / (domination_sum * mdist)
-            # )
-        # if 'strength' in names:
-            # params['strength'] = (
-                # (system.weights[numpy.newaxis,:] * dominances).sum(axis=1)
-                # / system.weights.sum()
-            # )
-            # params['strength'] /= params['strength'].sum()
-        # return params
+        ]
+        # ensure that strengths sum to 1
+        strengths = numpy.array([ant.strength for ant in antennas])
+        strengths /= strengths.sum()
+        for i, ant in enumerate(antennas):
+            ant.strength = strengths[i]
+        return self._network_from_list(system, antennas)
 
 
 class DummyNetworkEstimator(AntennaNetworkEstimator):
@@ -763,6 +848,45 @@ class DummyNetworkEstimator(AntennaNetworkEstimator):
         if 'principal_angle' in names:
             params['principal_angle'] = numpy.zeros(system.n_masts)
         return params
+
+class FixLocEMNetworkEstimator(AntennaNetworkEstimator):
+    DEFAULT_INITIALIZER = InitialNetworkEstimator()
+
+    # def __init__(self, initializer=None, maxiter=100, maxdrops=10, **kwargs):
+    def __init__(self, initializer=None, maxiter=10, maxdrops=10, **kwargs):
+        super().__init__(**kwargs)
+        self.maxiter = maxiter
+        self.maxdrops = maxdrops
+        self.initializer = initializer
+        if self.initializer is None:
+            self.initializer = self.DEFAULT_INITIALIZER
+
+    def estimate(self, system, user_fs, real_sigs):
+        net = self.initializer.estimate(system, user_fs)
+        # print(net)
+        # print(sum(ant.strength for ant in net.antennas))
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        sigest = SignalBasedNetworkEstimator()
+        for i in range(self.maxiter):
+            # E: signals from current net
+            signals = self.calculate_signals(system, net, user_fs)
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            ax.plot(system.observations[:,0], system.observations[:,1], numpy.log(real_sigs), 'r.')
+            ax.plot(system.observations[:,0], system.observations[:,1], numpy.log(signals.sum(axis=0)), 'b.')
+            plt.show()
+            # M: net from signals
+            net = sigest.estimate(system, signals)
+            print(i, net)
+        return net
+
+    def calculate_signals(self, system, net, user_fs):
+        current_sigs = system.strengths(net)
+        user_totsigs = current_sigs.sum(axis=0)
+        # normalize so that mean signal sum is 1
+        # user_totsigs /= user_totsigs.mean()
+        return (user_totsigs[numpy.newaxis,:] * user_fs + current_sigs) * .5
 
 
 
@@ -802,7 +926,7 @@ class EMNetworkEstimator(AntennaNetworkEstimator):
             for i, antenna in enumerate(net.antennas):
                 antenna.strength = strengths[i]
                 antenna.update()
-    
+
     def _update_antenna(self, antenna, opt_diffs):
         # print(antenna, opt_diffs)
         updated_names = [name for name in self.ALL_PARAMS if name in opt_diffs]
@@ -887,11 +1011,11 @@ class EMFixdomNetworkEstimator(EMNetworkEstimator):
     @staticmethod
     def _calibrate_signals(prevs, dominances):
         return dominances * prevs.sum(axis=0)[numpy.newaxis,:]
-        
+
     @staticmethod
     def _dominances_by_signal(signals):
         return signals / signals.sum(axis=0)
-        
+
     @staticmethod
     def dominance_agreement(realdoms, modeldoms):
         return 1 - numpy.sqrt(((realdoms - modeldoms) ** 2).mean())
@@ -1082,12 +1206,15 @@ class AdjustingNetworkEstimator(AntennaNetworkEstimator):
         return est_net
 
 
-class AntennaNetworkRecombiner:
+class AntennaNetworkCrossover:
     def __init__(self, sigma=0.1):
         self.sigma = 0.1
         self._breakpoint = scipy.stats.truncnorm(a=0, b=1, loc=0.5, scale=self.sigma)
 
-    def recombine(self, net1, net2):
+
+
+class MixingAntennaNetworkCrossover(AntennaNetworkCrossover):
+    def crossover(self, net1, net2):
         n_antennas = len(net1.antennas)
         n1 = int(self._breakpoint.rvs(1) * n_antennas)
         antennas1 = random.sample(net1.antennas, n1)
@@ -1099,5 +1226,191 @@ class AntennaNetworkRecombiner:
         return AntennaNetwork(net1.extent, antennas1 + antennas2)
 
 
-# class AntennaNetworkMutator:
+class AveragingAntennaNetworkCrossover(AntennaNetworkCrossover):
+    def crossover(self, net1, net2):
+        k1 = self._breakpoint.rvs(1)
+        newant = []
+        for ant1, ant2 in zip(net1.antennas, net2.antennas):
+            assert ant1.mast == ant2.mast
+            param1 = ant1.get_param_dict()
+            param2 = ant2.get_param_dict()
+            merged_param = {
+                key : k1 * param1[key] + (1 - k1) * param2[key]
+                for key in param1.keys()
+            }
+            newant.append(type(ant1)(ant1.mast, **merged_param))
+        return AntennaNetwork(net1.extent, newant)
+
+
+class AntennaParameterMutator:
+    def mutate(self, net):
+        i = numpy.random.randint(len(net.antennas))
+        return AntennaNetwork(net.extent,
+            (
+                net.antennas[:i]
+                + [self.mutate_antenna(net.antennas[i])]
+                + net.antennas[i+1:]
+            )
+        )
+
+    def mutate_antenna(self, antenna):
+        param = antenna.get_param_dict()
+        param[self.param_name] = self.mutate_param(antenna, param[self.param_name])
+        return type(antenna)(antenna.mast, **param)
+
+
+class AntennaAngleMutator(AntennaParameterMutator):
+    param_name = 'principal_angle'
+
+    def mutate_param(self, antenna, value):
+        return value + scipy.stats.vonmises.rvs(antenna.narrowness, size=1)
+
+
+class ExponentialMutator(AntennaParameterMutator):
+    def __init__(self, k=2):
+        self.k = k
+
+    def mutate_param(self, antenna, value):
+        return value + scipy.stats.expon.rvs(scale=(value / self.k), size=1)
+
+
+class AntennaNarrownessMutator(ExponentialMutator):
+    param_name = 'narrowness'
+
+
+class AntennaRangeMutator(ExponentialMutator):
+    param_name = 'range'
+
+
+class NetworkParameterMutator:
+    def __init__(self, var=.25):
+        self._coef = multiples_distro(var)
+
+    def mutate(self, net):
+        params = numpy.array([ant.get_param(self.name) for ant in net.antennas])
+        new_params = self.mutate_params(params)
+        newants = []
+        for i, ant in enumerate(net.antennas):
+            newant = ant.copy()
+            newant.set_param(self.name, new_params[i])
+            newants.append(newant)
+        return AntennaNetwork(net.extent, newants)
+
+
+class AntennaStrengthMutator(NetworkParameterMutator):
+    name = 'strength'
+
+    def mutate_params(self, strengths):
+        i = numpy.random.randint(strengths.size)
+        strengths[i] *= self._coef.rvs(1)
+        return strengths / strengths.sum()
+
+
+class NetworkRangeMutator(NetworkParameterMutator):
+    name = 'range'
+
+    def mutate_params(self, ranges):
+        return ranges * self._coef.rvs(1)
+
+def multiples_distro(var):
+    return scipy.stats.gamma(scale=var, a=1/var)
+
+class GeneticNetworkEstimator(AntennaNetworkEstimator):
+    DEFAULT_PARAMS = dict(
+        popsize=25,
+        # antenna_var=.25,
+        antenna_var=.75,
+        measurement_var=.5,
+        crossover_rate=1,
+        mutation_rate=1,
+        elitism_rate=0.05,
+        stability_termination=20,
+        max_generations=100,
+        initializer=InitialNetworkEstimator(),
+        crosser=AveragingAntennaNetworkCrossover(),
+        mutators=[
+            NetworkRangeMutator(),
+            AntennaStrengthMutator(),
+            AntennaAngleMutator(),
+            AntennaNarrownessMutator(),
+            AntennaRangeMutator(),
+        ],
+        mutator_weights=numpy.ones(5),
+    )
+
+    def __init__(self, **kwargs):
+        self.__dict__.update({
+            key : kwargs.get(key, self.DEFAULT_PARAMS[key])
+            for key in self.DEFAULT_PARAMS
+        })
+        self._antenna_coef = multiples_distro(self.antenna_var)
+        self._measurement_coef = multiples_distro(self.antenna_var)
+        self.mutator_probs = self.mutator_weights / self.mutator_weights.sum()
+
+    def estimate(self, system, user_fs):
+        population = [
+            self.initializer.estimate(
+                system,
+                self.randomize_dominances(user_fs),
+            )
+            for i in range(self.popsize)
+        ]
+        fitnesses = self.evaluate_population(population, system, user_fs)
+        maxfit = fitnesses.max()
+        stable_generations = 0
+        for gen_i in range(self.max_generations):
+            print(gen_i, maxfit)
+            population.extend(self.crossover(population))
+            population.extend(self.mutate(population))
+            fitnesses = self.evaluate_population(population, system, user_fs, fitnesses)
+            population, fitnesses = self.select(population, fitnesses)
+            prev_maxfit = maxfit
+            maxfit = fitnesses.max()
+            if maxfit == prev_maxfit:
+                stable_generations += 1
+                if stable_generations >= self.stability_termination:
+                    break
+            else:
+                stable_generations = 0
+        return population[fitnesses.argmax()]
+
+    def select(self, population, fitnesses):
+        n_elit = int(self.elitism_rate * self.popsize)
+        elitist_is = numpy.argsort(fitnesses)[-n_elit:]
+        others = numpy.ones(len(population), dtype=bool)
+        others[elitist_is] = False
+        scores = numpy.random.rand(len(population)) * fitnesses * others
+        all_is = (
+            list(elitist_is)
+            + list(numpy.argsort(scores)[-(self.popsize-len(elitist_is)):])
+        )
+        return [population[i] for i in all_is], fitnesses[all_is]
+
+    def crossover(self, source):
+        for i in range(int(self.crossover_rate * self.popsize)):
+            net1, net2 = numpy.random.choice(source, 2, replace=False)
+            yield self.crosser.crossover(net1, net2)
+
+    def mutate(self, source):
+        for i in range(int(self.mutation_rate * self.popsize)):
+            oper = numpy.random.choice(self.mutators, 1, p=self.mutator_probs)[0]
+            yield oper.mutate(numpy.random.choice(source, 1)[0])
+
+    def evaluate_population(self, pop, system, user_fs, fitnesses=None):
+        if fitnesses is None:
+            fitnesses = []
+        return numpy.concatenate((fitnesses, numpy.array([
+            self.evaluate_network(net, system, user_fs)
+            for net in pop[len(fitnesses):]
+        ])))
+
+    def evaluate_network(self, net, system, user_fs):
+        strs = system.strengths(net)
+        doms = strs / strs.sum(axis=0)[numpy.newaxis,:]
+        return 1 - ((doms - user_fs) ** 2).mean()
+
+    def randomize_dominances(self, user_fs):
+        modif = user_fs * self._antenna_coef.rvs(user_fs.shape[0])[:,numpy.newaxis] * self._measurement_coef.rvs(user_fs.shape)
+        return modif / modif.sum(axis=0)[numpy.newaxis,:]
+
 
