@@ -13,6 +13,7 @@ import geopandas as gpd
 
 
 def srid_to_crsdef(srid):
+    print('srid to crsdef')
     return {'init' : 'epsg:' + str(srid)}
 
 
@@ -21,7 +22,7 @@ def proj(crsdef):
 
 
 def srid_proj(srid):
-    return pyproj.Proj(**srid_to_crsdef(srid))
+    return pyproj.Proj(srid)
 
 
 def transformation(from_proj, to_proj):
