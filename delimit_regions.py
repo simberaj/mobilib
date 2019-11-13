@@ -1,13 +1,11 @@
+'''Delimit functional regions based on spatial interactions.
 
+Aggregate spatial units step-wise until all their regions satisfy the specified
+verification criteria, such as population size.
+'''
+
+import sys
 import logging
-# class Unit:
-    # def __init__(self, id, interactions, properties=None, name=None, neighbours=None):
-        # self.id = id
-        # self.interactions = interactions
-        # self.properties = properties if properties is not None else pd.Series()
-        # self.name = name if name is not None else f'Unit {id}'
-        # self.neighbours = neighbours
-# unit properties: mass, 
 
 import pandas as pd
 import mobilib.argparser
@@ -34,6 +32,9 @@ parser.add_argument('-c', '--verify-criterion',
     nargs=2, action='append', default=[],
     metavar=('CRITERION', 'VALUE'),
     help='criterion name and threshold for all regions to be delimited'
+)
+parser.add_argument('-d', '--dissolve-agg-region', action='store_true',
+    help='reassign aggregated regions by individual unit, not as a whole'
 )
 parser.add_argument('-v', '--verbose', action='store_true',
     help='show detailed progress messages'
@@ -90,30 +91,27 @@ def output(unit_df, regions, cores, out_path):
 
 
 def create_evaluator(args):
-    if len(args.verify_criterion) > 1:
-        raise NotImplementedError('cannot handle multiple criteria')
-    elif not args.verify_criterion:
-        return mobilib.region.ConstantEvaluator()
-    else:
-        criterion, threshold = args.verify_criterion[0]
-        return mobilib.region.evaluator(criterion)
-        
-        if criterion == 'unit_count':
-            return mobilib.region.UnitCountEvaluator()
-        else:
-            if not any(property == criterion for property, column in args.unit_prop_col):
-                raise ValueError(f'unit property-based criterion {criterion} specified but not found in unit properties')
-            return mobilib.region.PropertySumEvaluator(criterion)
+    evaluator = mobilib.region.evaluator(
+        [criterion for criterion, threshold in args.verify_criterion]
+    )
+    for criterion in evaluator.get_required_properties():
+        if not any(property == criterion for property, column in args.unit_prop_col):
+            raise ValueError(f'unit property-based criterion {criterion}'
+                              ' specified but not found in unit properties')
+    return evaluator
 
 
 def create_verifier(args):
-    if len(args.verify_criterion) > 1:
-        raise NotImplementedError('cannot handle multiple criteria')
-    elif not args.verify_criterion:
+    partials = [
+        mobilib.region.MinimumVerifier(float(threshold))
+        for criterion, threshold in args.verify_criterion
+    ]
+    if not partials:
         return mobilib.region.YesmanVerifier()
+    elif len(partials) == 1:
+        return partials[0]
     else:
-        criterion, threshold = args.verify_criterion[0]
-        return mobilib.region.MinimumVerifier(float(threshold))
+        return mobilib.region.CompoundVerifier(partials)
 
 
 def create_targeter(args):
@@ -127,13 +125,14 @@ def create_aggregator(args, evaluator, verifier, targeter):
         evaluator=evaluator,
         verifier=verifier,
         targeter=targeter,
-        dissolve_region=False,
+        dissolve_region=args.dissolve_agg_region
     )
     
 
 if __name__ == '__main__':
     args = parser.parse_args()
     logging.basicConfig(
+        stream=sys.stdout,
         level=(logging.DEBUG if args.verbose else logging.INFO),
         format='%(message)s',
     )
@@ -164,7 +163,7 @@ if __name__ == '__main__':
     agg_regions, agg_cores = aggregator.aggregate(regions, cores)
     
     # other missing:
-    # aggregation ordering (by ascending aggregation/descending verification/ascending verification)
+    # aggregation ordering setting (by ascending aggregation/descending verification/ascending verification)
     # flow transformations
     # aggregation ordering for partitioned dissolved region
     # neighbourhood, exclave determination and elimination

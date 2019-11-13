@@ -1,38 +1,59 @@
-
 import logging
+from typing import Any, List, Tuple
 
 import numpy as np
 import pandas as pd
 
 
 class EvaluatorInterface:
-    def feed(self, interactions, unit_props):
+    def feed(self, interactions: pd.Series, unit_props: pd.DataFrame) -> None:
         raise NotImplementedError
 
-    # def eval_one(self, region_units, core_units):
-        # raise NotImplementedError
+    def eval_all(self, regions: pd.Series, cores: pd.Series) -> pd.DataFrame:
+        raise NotImplementedError
 
-    def eval_all(self, regions, cores):
+    def get_required_properties(self) -> List[str]:
+        raise NotImplementedError
+
+    def get_criteria(self) -> List[str]:
         raise NotImplementedError
 
 
-
-class UnitCountEvaluator:
+class PropertylessEvaluator:
     def feed(self, interactions, unit_props):
         pass
 
-    # def eval_one(self, region_units, core_units):
-        # return len(region_units)
-
     def eval_all(self, regions, cores):
-        return regions.value_counts()
+        return pd.DataFrame(self._compute(regions, cores).rename(self.name))
+
+    def get_required_properties(self):
+        return []
+
+    def get_criteria(self):
+        return [self.name]
 
 
-class SourceFlowSumEvaluator:
+class ConstantEvaluator(PropertylessEvaluator):
+    name = 'constant'
+
+    def _compute(self, regions, cores):
+        return pd.Series(1, index=regions.unique())
+
+
+class UnitCountEvaluator(PropertylessEvaluator):
+    name = 'unit_count'
+
+    def _compute(self, regions, cores):
+        return regions.value_counts(sort=False)
+
+
+class SourceFlowSumEvaluator(PropertylessEvaluator):
+    name = 'sourceflow_sum'
+
     def feed(self, interactions, unit_props):
         self.flowsums = interactions.groupby(level=0).sum()
 
-    def eval_all(self, regions, cores):
+    def _compute(self, regions, cores):
         return self.flowsums.groupby(regions).sum()
 
 
@@ -46,28 +67,67 @@ class PropertySumEvaluator:
         except KeyError as err:
             raise LookupError(f'{self.criterion} unit property not specified') from err
 
-    # def eval_one(self, region_units, core_units):
-        # return self.props[region_units].sum()
+    def eval_all(self, regions, cores):
+        return pd.DataFrame(self.prop.groupby(regions).sum().rename(self.criterion))
+
+    def get_required_properties(self):
+        return [self.criterion]
+
+    def get_criteria(self):
+        return [self.criterion]
+
+
+class CompoundEvaluator:
+    def __init__(self, subevals):
+        self.subevals = subevals
+
+    def feed(self, interactions, unit_props):
+        for subeval in self.subevals:
+            subeval.feed(interactions, unit_props)
 
     def eval_all(self, regions, cores):
-        return self.prop.groupby(regions).sum()
+        evaluations = self.subevals[0].eval_all(regions, cores)
+        for subeval in self.subevals[1:]:
+            subevaluation = subeval.eval_all(regions, cores)
+            for col in subevaluation.columns:
+                evaluations[col] = subevaluation[col]
+        return evaluations
+
+    def get_required_properties(self):
+        return list(set(
+            prop for subeval in self.subevals
+                for prop in subeval.get_required_properties()
+        ))
+
+    def get_criteria(self):
+        crits = []
+        for subeval in self.subevals:
+            for crit in subeval.get_criteria():
+                if crit not in crits:
+                    crits.append(crit)
+        return crits
 
 
-PARAMETERLESS_EVALUATORS = {
-    'unit_count': UnitCountEvaluator(),
-    'sourceflow_sum': SourceFlowSumEvaluator(),
+PROPERTYLESS_EVALUATORS = {
+    c.name : c for c in PropertylessEvaluator.__subclasses__()
 }
 
 
-def evaluator(criterion):
-    if criterion in PARAMETERLESS_EVALUATORS:
-        return PARAMETERLESS_EVALUATORS[criterion]
+def evaluator(criterion=[]):
+    if not criterion:
+        return mobilib.region.ConstantEvaluator()
+    elif len(criterion) > 1:
+        return CompoundEvaluator([evaluator([critname]) for critname in criterion])
     else:
-        return PropertySumEvaluator(criterion)
+        criterion = criterion[0]
+        if criterion in PROPERTYLESS_EVALUATORS:
+            return PROPERTYLESS_EVALUATORS[criterion]()
+        else:
+            return PropertySumEvaluator(criterion)
 
 
 class VerifierInterface:
-    def verify(self, value):
+    def verify(self, value: Any) -> bool:
         raise NotImplementedError
 
 
@@ -82,6 +142,17 @@ class MinimumVerifier:
 
     def verify(self, value):
         return value >= self.threshold
+
+
+class CompoundVerifier:
+    def __init__(self, partials):
+        self.partials = partials
+
+    def verify(self, *args):
+        return all(
+            partial.verify(value)
+            for partial, value in zip(self.partials, args)
+        )
 
 
 class TargeterInterface:
@@ -131,32 +202,42 @@ class InteractionTargeter:
 
 
 class AggregatorInterface:
-    def aggregate(self, regions, cores):
+    def aggregate(self, regions: pd.Series, cores: pd.Series) -> Tuple[pd.Series, pd.Series]:
         raise NotImplementedError
 
 
 class StepwiseAggregator:
-    def __init__(self, evaluator, verifier, targeter, dissolve_region=False):
+    def __init__(self, evaluator, verifier, targeter, dissolve_region=False, sort_criterion=None):
         self.evaluator = evaluator
         self.verifier = verifier
         self.targeter = targeter
         self.dissolve_region = dissolve_region
+        self.sort_criterion = sort_criterion
 
     def aggregate(self, regions, cores):
         logging.debug('launching aggregation')
         regions = regions.copy()
         cores = cores.copy()
-        value_ser = self.evaluator.eval_all(regions, cores)
-        logging.debug('initial evaluation of %d regions', len(value_ser.index))
-        for id, value in value_ser.items():
-            logging.debug('  %s: %g', id, value)
+        evaluations = self.evaluator.eval_all(regions, cores)
+        sort_crit = (
+            self.sort_criterion if self.sort_criterion is not None
+            else evaluations.columns[0]
+        )
+        logging.debug('initial evaluation of %d regions', len(evaluations.index))
+        self._show_evaluations(evaluations)
         while True:
-            aggreg_code = value_ser.idxmin()
-            if self.verifier.verify(value_ser[aggreg_code]):
-                logging.debug('region %s stable at %g, terminating', aggreg_code, value_ser[aggreg_code])
-                break
+            aggreg_code = evaluations[sort_crit].idxmin()
+            aggreg_eval = tuple(evaluations.loc[aggreg_code,:])
+            if self.verifier.verify(*aggreg_eval):
+                # this one is stable, set evaluation to infinity and continue
+                logging.debug('region %s stable at %s', aggreg_code, aggreg_eval)
+                if not np.isfinite(evaluations.loc[aggreg_code,sort_crit]) or len(aggreg_eval) == 1:
+                    logging.debug('all regions stable, terminating')
+                    break
+                else:
+                    evaluations.loc[aggreg_code,sort_crit] = np.inf
             else:   # aggregate the bastard
-                logging.debug('aggregating region %s with value %g', aggreg_code, value_ser[aggreg_code])
+                logging.debug('aggregating region %s with value %s', aggreg_code, aggreg_eval)
                 aggreg_units = regions[regions == aggreg_code].index
                 logging.debug('involved units: %s', ', '.join(str(x) for x in aggreg_units))
                 targets = self._get_targets(aggreg_units, regions, cores)
@@ -167,18 +248,21 @@ class StepwiseAggregator:
                 regions.update(targets)
                 cores[targets.index] = False
                 # update region values
+                logging.debug('reevaluating regions')
                 selector = regions.isin(targets.unique())
                 reevals = self.evaluator.eval_all(
                     regions[selector],
                     cores[selector],
                 )
-                logging.debug('reevaluating regions')
-                for id, value in reevals.items():
-                    logging.debug('  %s: %g', id, value)
-                value_ser.update(reevals)
-                value_ser.drop(aggreg_code, inplace=True)
+                self._show_evaluations(reevals)
+                evaluations.update(reevals)
+                evaluations.drop(aggreg_code, inplace=True)
         return regions, cores
-    
+
+    def _show_evaluations(self, evaluations):
+        for row in evaluations.itertuples(name=None):
+            logging.debug('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
+
     def _get_targets(self, aggreg_units, regions, cores):
         if self.dissolve_region:
             # different target for each unit
