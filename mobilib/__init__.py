@@ -13,7 +13,6 @@ import geopandas as gpd
 
 
 def srid_to_crsdef(srid):
-    print('srid to crsdef')
     return {'init' : 'epsg:' + str(srid)}
 
 
@@ -54,6 +53,7 @@ def load_extent(path=None, target_srid=None):
         return poly
     else:
         return None
+
 
 def read_places(args):
     if args.place_file.endswith('.csv'):

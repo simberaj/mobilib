@@ -8,6 +8,7 @@ def default(docstring: str,
             interactions: bool = False,
             areas: bool = False,
             places: bool = False,
+            add_places_id: bool = True,
             ):
     '''Create a default argument parser with docstring as main help.
 
@@ -19,7 +20,7 @@ def default(docstring: str,
     )
     if interactions: add_interactions(parser)
     if areas: add_areas(parser)
-    if places: add_places(parser)
+    if places: add_places(parser, add_id=add_places_id)
     return parser
 
 
@@ -48,17 +49,18 @@ def add_areas(parser):
     )
 
 
-def add_places(parser):
+def add_places(parser, add_id: bool = True):
     parser.add_argument('place_file',
         help='interacting places layer as a GDAL-compatible point file or CSV'
     )
-    parser.add_argument('-i', '--place-id-col', default='id',
-        help='name of the place ID attribute in the place file'
-    )
-    parser.add_argument('-x', '--x-col', default='x',
+    if add_id:
+        parser.add_argument('-i', '--place-id-col', default='id',
+            help='name of the place ID attribute in the place file'
+        )
+    parser.add_argument('-x', '--x-col', default='X',
         help='name of the x-coordinate attribute in the place file (for CSV)'
     )
-    parser.add_argument('-y', '--y-col', default='y',
+    parser.add_argument('-y', '--y-col', default='Y',
         help='name of the y-coordinate attribute in the place file (for CSV)'
     )
     parser.add_argument('-c', '--srid', default=4326,
