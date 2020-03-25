@@ -7,7 +7,7 @@ import shapely.strtree
 import shapely.prepared
 
 
-def neighbours(geoms, gids=None):
+def neighbours(geoms, gids=None, tolerance=None):
     if gids is None:
         gids = list(range(len(geoms)))
     mem_to_ids = {id(geom) : gid for geom, gid in zip(geoms, gids)}
@@ -15,6 +15,8 @@ def neighbours(geoms, gids=None):
     geomtree = shapely.strtree.STRtree(geoms)
     print('str tree built')
     for gid, geom in zip(gids, geoms):
+        if tolerance:
+            geom = geom.buffer(tolerance)
         prepgeom = shapely.prepared.prep(geom)
         print(gid, end=(' ' * 20 + '\r'))
         for neigh_geom in geomtree.query(geom):
@@ -26,7 +28,7 @@ def neighbours(geoms, gids=None):
 
 def fix_polygons(geoms, tolerance=.01):
     geoms = geoms.copy()
-    for from_i, to_i in neighbours(geoms.copy()):
+    for from_i, to_i in neighbours(geoms.copy(), tolerance=tolerance):
         if from_i > to_i:
             from_i, to_i = to_i, from_i
         geoms.iloc[from_i] = shapely.ops.snap(

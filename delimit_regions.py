@@ -54,6 +54,8 @@ def get_unit_props(unit_df, prop_defs):
     
 def apply_region_presets(regions, cores, presets, core=False):
     presets = presets.dropna()
+    if pd.api.types.is_numeric_dtype(presets) and (presets.astype(int) == presets).all():
+        presets = presets.astype(int)
     n_presets = len(presets.index)
     if n_presets:
         logging.debug('applying %d assignment presets (core: %s)', n_presets, core)
@@ -127,7 +129,9 @@ def create_aggregator(args, evaluator, verifier, targeter):
         targeter=targeter,
         dissolve_region=args.dissolve_agg_region
     )
-    
+
+import warnings
+warnings.filterwarnings("error")
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -145,7 +149,7 @@ if __name__ == '__main__':
     logging.debug('%d units identified in interactions', len(unit_id_set))
     if args.unit_file:
         unit_df = load_units(args)
-        unit_id_set &= frozenset(unit_df.index.tolist())
+        unit_id_set |= frozenset(unit_df.index.tolist())
     else:
         unit_df = None
     unit_props = get_unit_props(unit_df, args.unit_prop_col)

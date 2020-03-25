@@ -1,3 +1,4 @@
+import sys
 import logging
 from typing import Any, List, Tuple
 
@@ -188,16 +189,29 @@ class InteractionTargeter:
         else:
             sources = units
         # interactions to targets outside the given units
+        # try:
         strengths = self.interactions.loc[sources].drop(units, level=1)
+        # except FutureWarning:
+            # print(strengths.to_dict())
+            # print(sources)
+            # raise RuntimeError
         if strengths.empty:
             return strengths
+        # print(strengths.to_dict())
         target_units = strengths.index.get_level_values(1)
         if self.target_core:
-            strengths *= cores[target_units]
+            # print(strengths)
+            # print(cores[target_units])
+            # print(list(target_units))
+            # print([item in cores.index for item in target_units])
+            strengths *= cores[target_units].values
         # group targets by region and return
         regs = strengths.reset_index(level=1)
         target_col, value_col = regs.columns
-        regs[target_col] = regs[target_col].map(regions[target_units])
+        # print(regs.to_dict())
+        # print(target_units)
+        # print(regions[target_units].to_dict())
+        regs[target_col] = regs[target_col].map(regions[target_units.unique()])
         return regs.set_index(target_col, append=True)[value_col].groupby(level=(0,1)).sum()
 
 
@@ -227,6 +241,7 @@ class StepwiseAggregator:
         self._show_evaluations(evaluations)
         while True:
             aggreg_code = evaluations[sort_crit].idxmin()
+            # sys.stderr.write(str(aggreg_code) + ' ' + str(sort_crit) + '\n')
             aggreg_eval = tuple(evaluations.loc[aggreg_code,:])
             if self.verifier.verify(*aggreg_eval):
                 # this one is stable, set evaluation to infinity and continue
