@@ -30,7 +30,7 @@ def transformation(from_proj, to_proj):
     return lambda geom: shtrans(projtrans, geom)
 
 
-def point_gdf(df, xcol='x', ycol='y', srid=4326, drop_locs=False):
+def point_gdf(df, xcol='X', ycol='Y', srid=4326, drop_locs=False):
     return gpd.GeoDataFrame(
         (df.drop([xcol, ycol], axis=1) if drop_locs else df),
         crs=srid_to_crsdef(srid),
