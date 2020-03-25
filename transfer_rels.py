@@ -1,10 +1,10 @@
-'''Apply an areal interpolation transfer table to a given field in an 
+'''Apply an areal interpolation transfer table to a given field in an
 interaction table, transferring from one set of identifiers to another.
 
 Can possibly be used on multiple fields.
 
 The input table should contain relations matching two identifiers (source and
-target of the relation) and one or more 
+target of the relation) and one or more
 
 The transfer table should contain three fields - the first is the source
 identifier matching the input file ID field, the second is the target identifier
@@ -17,7 +17,6 @@ weighting.
 '''
 
 import argparse
-import pickle
 
 import pandas as pd
 import numpy as np
@@ -46,6 +45,9 @@ parser.add_argument('-a', '--abs-field', nargs='+', default=[],
 )
 parser.add_argument('-e', '--eta-val', type=float, default=0,
     help='the self-interaction parameter value'
+)
+parser.add_argument('-I', '--intraflow-eta', nargs='?', const='', default=None,
+    help='calculate self-interaction parameter from intraflow fraction of given field'
 )
 
 
@@ -80,18 +82,46 @@ def transfer(indf, transdf, from_id_col, to_id_col, abs_fields):
         indf[val_field] *= indf['_weighter']
     aggs = {field : 'sum' for field in all_agg_fields}
     return indf.groupby(groupby_fields).agg(aggs).reset_index()
-    
+
+
+def calculate_eta_intraflow(indf, transdf, from_id_col, to_id_col, val_col):
+    intra = indf.loc[
+        indf[from_id_col] == indf[to_id_col], [from_id_col, val_col]
+    ].merge(
+        indf.groupby(from_id_col)[val_col].sum(),
+        left_on=from_id_col,
+        right_index=True,
+        how='outer',
+        suffixes=('_intra', '_all'),
+    ).set_index(from_id_col).fillna({
+        val_col + '_intra': 0,
+        val_col + '_all': 1,
+    })
+    intra['eta'] = intra[val_col + '_intra'] / intra[val_col + '_all']
+    transdf = transdf.merge(
+        intra['eta'],
+        left_on=transdf.columns[0],
+        right_index=True,
+    )
+    return transdf
+
 
 if __name__ == '__main__':
     args = parser.parse_args()
     indf = pd.read_csv(args.input_file, sep=';')
     transdf = pd.read_csv(args.trans_table, sep=';')
     if 'eta' not in transdf:
-        transdf['eta'] = args.eta_val
+        if args.intraflow_eta is not None:
+            transdf = calculate_eta_intraflow(
+                indf, transdf,
+                args.from_id_field, args.to_id_field,
+                (args.intraflow_eta if args.intraflow_eta else args.abs_field[0])
+            )
+        else:
+            transdf['eta'] = args.eta_val
     outdf = transfer(
         indf, transdf,
         args.from_id_field, args.to_id_field,
         args.abs_field
     )
     outdf.to_csv(args.output_file, sep=';', index=False)
-    

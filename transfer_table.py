@@ -10,7 +10,6 @@ for the given
 '''
 
 import argparse
-import pickle
 
 import numpy
 import pandas as pd
@@ -60,9 +59,6 @@ parser.add_argument('-t', '--target-id-field', default='id',
 )
 parser.add_argument('-w', '--weight-field', default='weight',
     help='field in weighting layer containing the (absolute) weights'
-)
-parser.add_argument('-m', '--eta-model',
-    help='a model to estimate the self-interaction parameter'
 )
 
 if __name__ == '__main__':

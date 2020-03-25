@@ -31,6 +31,9 @@ parser.add_argument('output_file',
 parser.add_argument('-i', '--id-field', default='id',
     help='input file id column(s)'
 )
+parser.add_argument('-g', '--grp-field', nargs='+', default=[],
+    help='input file fields to group by in addition to ID field'
+)
 parser.add_argument('-a', '--abs-field', nargs='+', default=[],
     help='input file fields to aggregate by sum (absolute)'
 )
@@ -44,17 +47,19 @@ if __name__ == '__main__':
     indf = pd.read_csv(args.input_file, sep=';')
     transdf = pd.read_csv(args.trans_table, sep=';')
     trans_source, trans_target, trans_weight = transdf.columns[:3]
-    indf = indf.merge(transdf, left_on=args.id_field, right_on=trans_source, how='left')
-    groupby_fields = [col for col in indf.columns if col.startswith(trans_target)]
-    weighting_fields = [col for col in indf.columns if col.startswith(trans_weight)]
-    all_agg_fields = args.abs_field # + args.rel_field
+    indf = indf.merge(
+        transdf,
+        left_on=args.id_field,
+        right_on=trans_source,
+        how='left',
+        suffixes=(None, None)
+    )
+    print(indf.head())
+    groupby_fields = [trans_target] + args.grp_field
+    print(groupby_fields)
+    all_agg_fields = args.abs_field
     for val_field in all_agg_fields:
-        for wt_field in weighting_fields:
-            indf[val_field] *= indf[wt_field]
+        indf[val_field] *= indf[trans_weight]
     aggs = {field : 'sum' for field in all_agg_fields}
-    # if args.rel_field:
-        # aggs[trans_weight] = 'sum'
     outdf = indf.groupby(groupby_fields).agg(aggs).reset_index()
-    # for field in args.rel_field:
-        # outdf[field] /= outdf[trans_weight]
     outdf.to_csv(args.output_file, sep=';', index=False)
