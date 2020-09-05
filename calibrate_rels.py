@@ -1,10 +1,8 @@
-import os
 import argparse
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
-import sklearn.linear_model
 
 import mobilib.relations
 
@@ -13,7 +11,7 @@ def calibrate_source(value_df: pd.DataFrame,
                      calib_series: pd.Series,
                      ) -> pd.DataFrame:
     return _calibrate_by_index(value_df, calib_series, 0)
-    
+
 
 def calibrate_source_dirstat(value_df: pd.DataFrame,
                              calib_series: pd.Series,
@@ -39,7 +37,7 @@ def calibrate_source_dirstat(value_df: pd.DataFrame,
     calibrated_df[to_name] = value_calib[to_name].values
     return calibrated_df.set_index(value_df.index.names)
 
-        
+
 def _calibrate_by_index(value_df: pd.DataFrame,
                         calib_series: pd.Series,
                         levels: Union[int, Tuple[int]],
@@ -59,7 +57,7 @@ def _calibrate_by_index(value_df: pd.DataFrame,
     for col in value_df.columns:
         with_coefs[col] *= with_coefs[col + '_coef']
     return with_coefs[value_df.columns.tolist()]
-    
+
 
 
 def calibrate_ipf(value_df: pd.DataFrame,
