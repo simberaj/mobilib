@@ -67,7 +67,7 @@ if __name__ == '__main__':
     weight_gdf = gpd.read_file(args.weighting_file).rename_axis('wt_id').reset_index()
     weight_gdf['wt_geom'] = weight_gdf['geometry']
     parts_gdf = gpd.sjoin(source_gdf, weight_gdf, op='intersects', how='left')
-    parts_gdf['part'] = parts_gdf.apply(intersection_fx('geometry', 'wt_geom'), axis=1)
+    parts_gdf['part'] = gpd.GeoSeries(parts_gdf.apply(intersection_fx('geometry', 'wt_geom'), axis=1))
     parts_gdf['part_area'] = parts_gdf['part'].area
     parts_gdf = parts_gdf.merge(
         parts_gdf.groupby('wt_id')['part_area'].sum().reset_index().rename(

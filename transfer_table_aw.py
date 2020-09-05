@@ -61,11 +61,9 @@ if __name__ == '__main__':
         how='intersection',
     )
     inters_gdf['_area'] = inters_gdf['geometry'].area
-    for_coefs_df = pd.merge(
-        inters_gdf.drop('geometry', axis=1),
+    for_coefs_df = inters_gdf.drop('geometry', axis=1).join(
         inters_gdf.groupby(args.source_id_field)['_area'].sum().rename('_source_area'),
-        left_on=args.source_id_field,
-        right_index=True,
+        on=args.source_id_field,
     )
     for_coefs_df['weight'] = for_coefs_df.eval('_area / _source_area')
     for_coefs_df.drop(

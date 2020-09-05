@@ -14,6 +14,8 @@ import argparse
 
 import pandas as pd
 
+import mobilib
+
 
 parser = argparse.ArgumentParser(
     description=__doc__,
@@ -44,7 +46,7 @@ parser.add_argument('-a', '--abs-field', nargs='+', default=[],
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    indf = pd.read_csv(args.input_file, sep=';')
+    indf = mobilib.read_nonspatial(args.input_file)
     transdf = pd.read_csv(args.trans_table, sep=';')
     trans_source, trans_target, trans_weight = transdf.columns[:3]
     indf = indf.merge(
