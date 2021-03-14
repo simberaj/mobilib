@@ -9,6 +9,7 @@ def default(docstring: str,
             areas: bool = False,
             places: bool = False,
             add_places_id: bool = True,
+            add_interaction_strength: bool = True,
             ):
     '''Create a default argument parser with docstring as main help.
 
@@ -18,7 +19,7 @@ def default(docstring: str,
         description=docstring,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    if interactions: add_interactions(parser)
+    if interactions: add_interactions(parser, add_strength=add_interaction_strength)
     if areas: add_areas(parser)
     if places: add_places(parser, add_id=add_places_id)
     return parser

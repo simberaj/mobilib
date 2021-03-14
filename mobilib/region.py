@@ -78,6 +78,39 @@ class PropertySumEvaluator:
         return [self.criterion]
 
 
+class HinterlandSumEvaluator(PropertySumEvaluator):
+    PREFIX = 'hinterland_'
+
+    def eval_all(self, regions, cores):
+        # print()
+        # print('PROP')
+        # print(self.prop)
+        # print('REGIONS')
+        # print(regions)
+        # print('CORES')
+        # print(cores)
+        # print('PROP-REG')
+        # print(self.prop.groupby(regions).sum())
+        # print('PROP-NONCORE')
+        # print(cores.index)
+        # print(self.prop.index)
+        # print(self.prop[cores.index])
+        # # print(self.prop[~cores])
+        # print(self.prop[cores.index][~cores].groupby(regions).sum())
+        # print('gzjk')
+        # print(self.prop.groupby(regions).sum().sub(
+            # self.prop[cores.index][cores].groupby(regions).sum(),
+            # fill_value=0
+        # ).astype(self.prop.dtype).rename(self.criterion))
+        # print('asdf')
+        return pd.DataFrame(
+            self.prop.groupby(regions).sum().sub(
+                self.prop[cores.index][cores].groupby(regions).sum(),
+                fill_value=0
+            ).astype(self.prop.dtype).rename(self.PREFIX + self.criterion)
+        )
+
+
 class CompoundEvaluator:
     def __init__(self, subevals):
         self.subevals = subevals
@@ -123,6 +156,8 @@ def evaluator(criterion=[]):
         criterion = criterion[0]
         if criterion in PROPERTYLESS_EVALUATORS:
             return PROPERTYLESS_EVALUATORS[criterion]()
+        elif criterion.startswith(HinterlandSumEvaluator.PREFIX):
+            return HinterlandSumEvaluator(criterion[len(HinterlandSumEvaluator.PREFIX):])
         else:
             return PropertySumEvaluator(criterion)
 
@@ -190,7 +225,12 @@ class InteractionTargeter:
             sources = units
         # interactions to targets outside the given units
         # try:
-        strengths = self.interactions.loc[sources].drop(units, level=1)
+        # print(sources)
+        # print(self.interactions)
+        # print(units)
+        strengths = self.interactions.reindex(
+            index=sources, level=0
+        ).drop(units, level=1, errors='ignore')
         # except FutureWarning:
             # print(strengths.to_dict())
             # print(sources)
@@ -216,7 +256,7 @@ class InteractionTargeter:
 
 
 class AggregatorInterface:
-    def aggregate(self, regions: pd.Series, cores: pd.Series) -> Tuple[pd.Series, pd.Series]:
+    def aggregate(self, regions: pd.Series, cores: pd.Series) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         raise NotImplementedError
 
 
@@ -229,32 +269,36 @@ class StepwiseAggregator:
         self.sort_criterion = sort_criterion
 
     def aggregate(self, regions, cores):
-        logging.debug('launching aggregation')
+        # logging.debug('launching aggregation')
         regions = regions.copy()
         cores = cores.copy()
         evaluations = self.evaluator.eval_all(regions, cores)
+        # print(evaluations)
+        # raise RuntimeError
         sort_crit = (
             self.sort_criterion if self.sort_criterion is not None
             else evaluations.columns[0]
         )
-        logging.debug('initial evaluation of %d regions', len(evaluations.index))
-        self._show_evaluations(evaluations)
+        stages = []
+        # logging.debug('initial evaluation of %d regions', len(evaluations.index))
+        # self._show_evaluations(evaluations)
         while True:
             aggreg_code = evaluations[sort_crit].idxmin()
             # sys.stderr.write(str(aggreg_code) + ' ' + str(sort_crit) + '\n')
             aggreg_eval = tuple(evaluations.loc[aggreg_code,:])
             if self.verifier.verify(*aggreg_eval):
                 # this one is stable, set evaluation to infinity and continue
-                logging.debug('region %s stable at %s', aggreg_code, aggreg_eval)
+                # logging.debug('region %s stable at %s', aggreg_code, aggreg_eval)
                 if not np.isfinite(evaluations.loc[aggreg_code,sort_crit]) or len(aggreg_eval) == 1:
-                    logging.debug('all regions stable, terminating')
+                    # logging.debug('all regions stable, terminating')
                     break
                 else:
                     evaluations.loc[aggreg_code,sort_crit] = np.inf
             else:   # aggregate the bastard
-                logging.debug('aggregating region %s with value %s', aggreg_code, aggreg_eval)
+                # logging.debug('aggregating region %s with value %s', aggreg_code, aggreg_eval)
+                stages.append(aggreg_eval)
                 aggreg_units = regions[regions == aggreg_code].index
-                logging.debug('involved units: %s', ', '.join(str(x) for x in aggreg_units))
+                # logging.debug('involved units: %s', ', '.join(str(x) for x in aggreg_units))
                 targets = self._get_targets(aggreg_units, regions, cores)
                 if targets.isna().any():
                     logging.warning('region %s not aggregable, keeping', aggreg_code)
@@ -263,20 +307,25 @@ class StepwiseAggregator:
                 regions.update(targets)
                 cores[targets.index] = False
                 # update region values
-                logging.debug('reevaluating regions')
+                # logging.debug('reevaluating regions')
                 selector = regions.isin(targets.unique())
                 reevals = self.evaluator.eval_all(
                     regions[selector],
                     cores[selector],
                 )
-                self._show_evaluations(reevals)
+                # self._show_evaluations(reevals)
                 evaluations.update(reevals)
                 evaluations.drop(aggreg_code, inplace=True)
-        return regions, cores
+        stages.extend(evaluations.itertuples(name=None, index=False))
+        # for row in evaluations.itertuples(name=None):
+            # print('  %s: %s' % (row[0], ', '.join(str(val) for val in row[1:])))
+        stage_df = pd.DataFrame.from_records(stages, columns=evaluations.columns)
+        return regions, cores, stage_df
 
-    def _show_evaluations(self, evaluations):
-        for row in evaluations.itertuples(name=None):
-            logging.debug('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
+    # def _show_evaluations(self, evaluations):
+        # for row in evaluations.itertuples(name=None):
+            # print('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
+            # logging.debug('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
 
     def _get_targets(self, aggreg_units, regions, cores):
         if self.dissolve_region:
@@ -285,6 +334,6 @@ class StepwiseAggregator:
         else:
             # select a single target for all units
             target = self.targeter.target(aggreg_units, regions, cores)
-            if not np.isnan(target):
-                logging.debug('single target: %s', target)
+            # if not np.isnan(target):
+                # logging.debug('single target: %s', target)
             return pd.Series(target, index=aggreg_units)

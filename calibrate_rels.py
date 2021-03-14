@@ -44,13 +44,14 @@ def _calibrate_by_index(value_df: pd.DataFrame,
                         ) -> pd.DataFrame:
     if not hasattr(levels, '__len__'):
         levels = (levels, )
-    value_sums = value_df.groupby(level=levels).sum()
+    value_factors = value_df.groupby(level=levels).sum()
     calib_sums = calib_series.groupby(level=levels).sum()
     # calib_fractions = value_sums.join(calib_sums, how='outer')
-    for col in value_sums:
-        value_sums[col] = calib_sums / value_sums[col]
+    for col in value_factors:
+        value_factors[col] = (calib_sums / value_factors[col]).fillna(1)
+    # raise RuntimeError
     with_coefs = value_df.join(
-        value_sums,
+        value_factors,
         on=[name for i, name in enumerate(value_df.index.names) if i in levels],
         rsuffix='_coef'
     )
@@ -132,6 +133,13 @@ parser.add_argument('-c', '--calib-id-fields', nargs='+', default=[],
 parser.add_argument('-t', '--type', nargs='+', default=METHOD_TYPE_LIST,
     help='calibration model type (' + ', '.join(METHOD_TYPE_LIST) + ')'
 )
+parser.add_argument('-o', '--omit-other', action='store_true',
+    help='only output the calibrated columns and ID column(s) from the source file'
+)
+parser.add_argument('-S', '--no-suffix', action='store_true',
+    help='do not add the calibration method suffix to the output calibrated columns'
+    ' (warning: this might result in a duplicate column error if more methods are used)'
+)
 
 
 if __name__ == '__main__':
@@ -141,16 +149,21 @@ if __name__ == '__main__':
         args.calib_file, sep=';'
     ).set_index(calib_id_fields)[args.calib_field]
     value_df = pd.read_csv(args.source_file, sep=';')
-    base_df = value_df.drop(args.value_field, axis=1)
+    if args.omit_other:
+        base_df = value_df[args.id_fields]
+    else:
+        base_df = value_df.drop(args.value_field, axis=1)
     value_df_narrow = value_df[args.id_fields + args.value_field].set_index(args.id_fields)
     for method in args.type:
         out_df = METHODS[method](value_df_narrow, calib_series)
         if out_df is not None:
-            base_df = base_df.merge(
-                out_df.rename(columns={
+            if not args.no_suffix:
+                out_df = out_df.rename(columns={
                     col: col + '_cal_' + method
                     for col in out_df.columns if col not in args.id_fields
                 }),
+            base_df = base_df.merge(
+                out_df,
                 left_on=args.id_fields,
                 right_index=True,
                 how='outer',

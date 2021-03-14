@@ -30,16 +30,6 @@ parser.add_argument('-s', '--min-weight-sel-opts', default=0, type=int,
     help='let the user select the optimal weight from this many options; only has effect when -m is not set')
 
 
-def nicefy(low, high):
-    mean = (low + high) * 0.5
-    nplaces = int(numpy.ceil(numpy.log10(mean)))
-    roundmean = numpy.around(mean, -nplaces)
-    while roundmean > high or roundmean < low:
-        nplaces -= 1
-        roundmean = numpy.around(mean, -nplaces)
-    return roundmean
-
-
 if __name__ == '__main__':
     args = parser.parse_args()
     hierdf = pd.read_csv(args.hierarchy_file, sep=';')

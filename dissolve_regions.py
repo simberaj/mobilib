@@ -10,8 +10,12 @@ import mobilib.argparser
 def merge_areas(unit_df, area_gdf, unit_id, area_id):
     if area_gdf[area_id].dtype != unit_df[unit_id].dtype:
         area_gdf[area_id] = area_gdf[area_id].astype(unit_df[unit_id].dtype)
+    unit_cols = unit_df.columns.tolist()
     unit_df = unit_df.merge(
-        area_gdf,
+        area_gdf.drop([
+            col for col in area_gdf.columns
+            if col in unit_cols and col != area_id
+        ], axis=1),
         how='outer',
         left_on=unit_id,
         right_on=area_id,
@@ -79,8 +83,9 @@ parser.add_argument('-c', '--unit-core-col', default='is_core',
 # parser.add_argument('-n', '--unit-name-col',
     # help='name of the unit name attribute in the unit file'
 # )
-parser.add_argument('-U', '--area-unit-id-col', default='id',
+parser.add_argument('-U', '--area-unit-id-col',
     help='name of the area ID attribute in the area file'
+    ' (default: same as --unit-id-col)'
 )
 parser.add_argument('-s', '--sum-cols', nargs='+',
     help='unit columns to aggregate by sum to regions'
@@ -100,13 +105,16 @@ if __name__ == '__main__':
     is_core_def = args.unit_core_col and args.unit_core_col in unit_df
     is_largdisting_def = args.distinguish_largest_by_col and args.distinguish_largest_by_col in unit_df
     if args.area_file:
+        area_id_col = (
+            args.area_unit_id_col if args.area_unit_id_col is not None
+            else args.unit_id_col
+        )
         unit_df = merge_areas(
             unit_df, gpd.read_file(args.area_file),
-            args.unit_id_col, args.area_unit_id_col,
+            args.unit_id_col, area_id_col,
         )
     unit_df = unit_df[unit_df[args.unit_region_col].notna()]
     if args.area_file:
-        # unit_df[args.unit_region_col].fillna(unit_df[args.area_unit_id_col], inplace=True)
         if is_core_def:
             unit_df[args.unit_core_col].fillna(True, inplace=True)
         if is_largdisting_def:

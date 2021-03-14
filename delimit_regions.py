@@ -42,6 +42,9 @@ parser.add_argument('-v', '--verbose', action='store_true',
 parser.add_argument('out_file',
     help='path to output the regional assignments as a semicolon-delimited CSV'
 )
+parser.add_argument('-S', '--out-stages',
+    help='output aggregation stage thresholds as a semicolon-delimited CSV'
+)
 
 def get_unit_props(unit_df, prop_defs):
     if unit_df is None:
@@ -51,7 +54,7 @@ def get_unit_props(unit_df, prop_defs):
             prop_name: unit_df[prop_col]
             for prop_name, prop_col in prop_defs
         }
-    
+
 def apply_region_presets(regions, cores, presets, core=False):
     presets = presets.dropna()
     if pd.api.types.is_numeric_dtype(presets) and (presets.astype(int) == presets).all():
@@ -164,20 +167,23 @@ if __name__ == '__main__':
             apply_region_presets(regions, cores, unit_df[col], core=core)
     evaluator.feed(inter, unit_props)
     targeter.feed(inter, unit_props)
-    agg_regions, agg_cores = aggregator.aggregate(regions, cores)
-    
+    agg_regions, agg_cores, agg_stages = aggregator.aggregate(regions, cores)
+    print()
+
     # other missing:
     # aggregation ordering setting (by ascending aggregation/descending verification/ascending verification)
     # flow transformations
     # aggregation ordering for partitioned dissolved region
     # neighbourhood, exclave determination and elimination
-    
+
     # to test:
     # target core/region
     # source from core/region
     # partition/not to partition dissolved region
-    
+
     # RUN AGGREGATION
     # different verification criteria based on unit properties, interaction measures...
-    
+
     output(unit_df, agg_regions, agg_cores, args.out_file)
+    if args.out_stages:
+        agg_stages.sort_values(by=agg_stages.columns[0]).to_csv(args.out_stages, sep=';', index=False)
