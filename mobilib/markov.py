@@ -1,9 +1,17 @@
 
+from typing import Union, Optional
+
 import numpy as np
+import scipy.sparse
 import scipy.sparse.csgraph
+import scipy.sparse.linalg
 
 
-def mfpt(trans: np.ndarray, stat: np.ndarray = None) -> np.ndarray:
+def mfpt(trans: Union[np.ndarray, scipy.sparse.csr_matrix],
+         stat: Optional[np.ndarray] = None,
+         ) -> np.ndarray:
+    if scipy.sparse.issparse(trans):
+        trans = np.asarray(trans.todense())
     if not trans.size:
         return trans
     if stat is None:
@@ -21,16 +29,24 @@ def mfpt(trans: np.ndarray, stat: np.ndarray = None) -> np.ndarray:
 
 
 def stationary_distribution(p: np.ndarray) -> np.ndarray:
-    eigval, eigvec = np.linalg.eig(p.T)
-    vec_stat = eigvec[:, np.argmin(abs(eigval - 1.0))].real
+    if scipy.sparse.issparse(p):
+        eigval, eigvec = scipy.sparse.linalg.eigs(p.T, k=6, sigma=1)
+    else:
+        eigval, eigvec = np.linalg.eig(p.T)
+    vec_stat = eigvec[:, np.argmin(abs(eigval - 1.0))].real.flatten()
     return vec_stat / vec_stat.sum()
 
 
-def transition_matrix(inter: np.ndarray) -> np.ndarray:
-    return inter / inter.sum(axis=1)[:, np.newaxis]
+def transition_matrix(inter: Union[np.ndarray, scipy.sparse.csr_matrix]) -> np.ndarray:
+    if scipy.sparse.issparse(inter):
+        return scipy.sparse.diags(1 / inter.sum(axis=1).A.ravel()).dot(inter)
+    else:
+        return inter / inter.sum(axis=1, keepdims=True)
 
 
-def fundamental_matrix(trans, stat):
+def fundamental_matrix(trans: Union[np.ndarray, scipy.sparse.csr_matrix],
+                       stat: Optional[np.ndarray] = None,
+                       ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
     return np.linalg.inv(np.eye(stat.size) - trans + stat[np.newaxis, :])
 
 
