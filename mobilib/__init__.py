@@ -77,7 +77,7 @@ def write_gdf(gdf, path):
         gdf.to_file(path)
 
 
-def read_csv_gdf(path, xcol='X', ycol='Y', srid=4326):
+def read_csv_gdf(path, xcol='X', ycol='Y', srid=4326, **kwargs):
     df = pd.read_csv(path, sep=';')
     cols = [col.lower() for col in df.columns.tolist()]
     for col in check_geom_cols:
@@ -96,3 +96,13 @@ def read_nonspatial(path, **kwargs):
         return pd.read_csv(path, sep=';', **kwargs)
     else:
         return pd.DataFrame(gpd.read_file(path).drop('geometry', axis=1))
+
+
+def point_gdf_to_wkt(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
+    return (
+        gdf
+        .assign(wkt=gdf.geometry.map(lambda x: x.wkt))
+        .assign(x=gdf.geometry.x)
+        .assign(y=gdf.geometry.y)
+        .drop(['geometry'], axis=1)
+    )

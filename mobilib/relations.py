@@ -2,6 +2,8 @@ from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
+import geopandas as gpd
+import shapely.geometry
 
 DEFAULT_HOME_CODE = 'k'
 DEFAULT_WORK_CODE = 't'
@@ -201,6 +203,22 @@ def default_generators(home_code: str = DEFAULT_HOME_CODE,
             selfinter=selfinter,
         ),
     ]
+
+
+def to_lines(rel_df: pd.DataFrame,
+             pts: gpd.GeoDataFrame,
+             ) -> gpd.GeoDataFrame:
+    from_id, to_id = rel_df.columns[:2]
+    all_df = (
+        rel_df
+        .join(pts.rename(columns=lambda col: 'from_' + str(col)), on=from_id)
+        .join(pts.rename(columns=lambda col: 'to_' + str(col)), on=to_id)
+    )
+    all_df['geometry'] = [
+        shapely.geometry.LineString([pt1, pt2]).wkt
+        for pt1, pt2 in zip(all_df['from_geometry'], all_df['to_geometry'])
+    ]
+    return all_df.drop(['from_geometry', 'to_geometry'], axis=1)
 
 
 if __name__ == '__main__':

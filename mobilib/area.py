@@ -265,3 +265,6 @@ def _union_groups(polygons: List[AnyPolygon],
                   ) -> List[AnyPolygon]:
     return [shapely.ops.unary_union([polygons[i] for i in group]) for group in groups]
 
+
+def representative_points(geometry: gpd.GeoSeries) -> gpd.GeoSeries:
+    return geometry.map(lambda x: x.representative_point())

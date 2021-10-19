@@ -4,6 +4,7 @@ import shapely.geometry
 
 import mobilib
 import mobilib.argparser
+import mobilib.relations
 
 
 parser = mobilib.argparser.default(
@@ -16,22 +17,13 @@ parser.add_argument('out_file',
 if __name__ == '__main__':
     args = parser.parse_args()
     inter_df = pd.read_csv(args.inter_file, sep=';')
+    orig_cols = inter_df.columns.tolist()
+    id_cols = [args.from_id_col, args.to_id_col]
+    rem_cols = [col for col in orig_cols if col not in id_cols]
     place_df = mobilib.read_places(args)
-    all_df = inter_df.merge(
-        place_df.rename(columns=lambda colname: 'from_' + str(colname)),
-        left_on=args.from_id_col,
-        right_on='from_' + args.place_id_col,
+    line_df = mobilib.relations.to_lines(
+        inter_df[id_cols + rem_cols],
+        place_df.set_index(args.place_id_col),
     )
-    all_df = all_df.merge(
-        place_df.rename(columns=lambda colname: 'to_' + str(colname)),
-        left_on=args.to_id_col,
-        right_on='to_' + args.place_id_col,
-    )
-    all_df['geometry'] = [
-        shapely.geometry.LineString([pt1, pt2]).wkt
-        for pt1, pt2 in zip(all_df['from_geometry'], all_df['to_geometry'])
-    ]
-    all_df.drop([
-        'from_geometry', 'to_geometry',
-        'from_' + args.place_id_col, 'to_' + args.place_id_col
-    ], axis=1).to_csv(args.out_file, sep=';', index=False)
+    line_df = line_df[orig_cols + line_df.columns.tolist()[len(orig_cols):]]
+    line_df.to_csv(args.out_file, sep=';', index=False)
