@@ -1,3 +1,5 @@
+"""Vector geometry operations and simplification functions on NumPy vector arithmetics."""
+
 import math
 from typing import Union
 
@@ -37,6 +39,7 @@ def straight_line(from_pt: shapely.geometry.Point,
 def curved_line(from_pt: shapely.geometry.Point,
                 to_pt: shapely.geometry.Point,
                 ) -> shapely.geometry.LineString:
+    """Produce a slightly curved line between the two points."""
     xa = from_pt.x
     ya = from_pt.y
     xb = to_pt.x
@@ -62,6 +65,7 @@ def succession_geoms(assignments: pd.Series,
                      attrs: Union[pd.Series, pd.DataFrame],
                      unit_geoms: gpd.GeoSeries,
                      ) -> gpd.GeoDataFrame:    # geometry, weight
+    """Compute region geometries corresponding to an aggregation sequence."""
     return (
         pd.DataFrame({'region': assignments})
         .join(unit_geoms.rename('geometry'))

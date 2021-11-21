@@ -1,3 +1,5 @@
+"""Calibrate interaction sizes to correct magnitude determined from other interaction data."""
+
 import argparse
 from typing import Tuple, Union
 
@@ -89,7 +91,7 @@ def calibrate_ipf(value_df: pd.DataFrame,
     for fld in value_df.columns:
         matrix = np.zeros((n_units, n_units), dtype=value_df[fld].dtype)
         matrix[indexers] = value_df[fld].fillna(0).to_numpy()
-        matrix = mobilib.relations.ipf(matrix, *marginals, max_iter=250)
+        matrix = mobilib.core.ipf(matrix, *marginals, max_iter=250)
         out_df[fld] = matrix.flatten()
     out_df.drop('_', axis=1, inplace=True)
     meaningful_rows = (out_df.to_numpy() != 0).any(axis=1)

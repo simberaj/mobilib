@@ -1,10 +1,10 @@
-'''Apply an areal interpolation transfer table to a given field in an
-interaction table, transferring from one set of identifiers to another.
+"""Apply an areal interpolation transfer table to interaction data.
 
-Can possibly be used on multiple fields.
+This allows interactions to be recomputed from one set of identifiers
+to another. Can possibly be used on multiple fields.
 
 The input table should contain relations matching two identifiers (source and
-target of the relation) and one or more
+target of the relation) and one or more value columns.
 
 The transfer table should contain three fields - the first is the source
 identifier matching the input file ID field, the second is the target identifier
@@ -14,39 +14,44 @@ that will be produced in the output and the third is the interpolation
 The self-interaction parameter value specifies the fraction of interactions
 to be directly assigned to self-interactions instead of applying the relational
 weighting.
-'''
-
-import argparse
+"""
 
 import pandas as pd
 import numpy as np
 
-parser = argparse.ArgumentParser(
-    description=__doc__,
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter
-)
-parser.add_argument('input_file',
+import mobilib.argparser
+
+parser = mobilib.argparser.default(__doc__)
+parser.add_argument(
+    'input_file',
     help='input data as semicolon-delimited CSV'
 )
-parser.add_argument('trans_table',
+parser.add_argument(
+    'trans_table',
     help='transfer table as semicolon-delimited CSV'
 )
-parser.add_argument('output_file',
+parser.add_argument(
+    'output_file',
     help='path to output the interpolated CSV'
 )
-parser.add_argument('-f', '--from-id-field', default='from_id',
+parser.add_argument(
+    '-f', '--from-id-field', default='from_id',
     help='name of the source area ID attribute in the input relations file'
 )
-parser.add_argument('-t', '--to-id-field', default='to_id',
+parser.add_argument(
+    '-t', '--to-id-field', default='to_id',
     help='name of the target area ID attribute in the input relations file'
 )
-parser.add_argument('-a', '--abs-field', nargs='+', default=[],
+parser.add_argument(
+    '-a', '--abs-field', nargs='+', default=[],
     help='input file fields to aggregate by sum (absolute)'
 )
-parser.add_argument('-e', '--eta-val', type=float, default=0,
+parser.add_argument(
+    '-e', '--eta-val', type=float, default=0,
     help='the self-interaction parameter value'
 )
-parser.add_argument('-I', '--intraflow-eta', nargs='?', const='', default=None,
+parser.add_argument(
+    '-I', '--intraflow-eta', nargs='?', const='', default=None,
     help='calculate self-interaction parameter from intraflow fraction of given field'
 )
 

@@ -1,7 +1,6 @@
-'''Connect (cut) roads so that they only touch at endpoints.'''
+"""Connect (cut) roads so that they only touch at endpoints."""
 
 import os
-import argparse
 from typing import Any, Optional, List
 
 import geopandas as gpd
@@ -29,32 +28,41 @@ def roads_to_network(source_file: os.PathLike,
     mobilib.routing.to_lines(
         mobilib.routing.largest_component(network),
         gdf.crs
-    ).to_file(target_file)
+    ).to_file(os.fspath(target_file))
 
 
-parser = argparse.ArgumentParser(
-    description=__doc__,
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter
-)
-parser.add_argument('in_roads',
+parser = mobilib.argparser.default(__doc__)
+parser.add_argument(
+    'in_roads',
     help='GDAL-compatible spatial file with connected (routable) roads'
 )
-parser.add_argument('out_network',
-    help='path to output a GDAL-compatible spatial file with cleaned roads of the main network'
+parser.add_argument(
+    'out_network',
+    help='path to output a GDAL-compatible spatial file with cleaned roads'
+         ' of the main network'
 )
-parser.add_argument('-a', '--attrs', nargs='+',
-    help='attributes of the roads to preserve in the network (default: preserve all)'
+parser.add_argument(
+    '-a', '--attrs', nargs='+',
+    help='attributes of the roads to preserve in the network (default:'
+         ' preserve all)'
 )
-parser.add_argument('-o', '--oneway-col',
-    help='oneway street attribute name, will be used to determine edge directions and dropped'
+parser.add_argument(
+    '-o', '--oneway-col',
+    help='oneway street attribute name, will be used to determine edge'
+         ' directions and dropped'
 )
-parser.add_argument('-f', '--forward-way-value', default='F',
-    help='oneway street attribute value signifying rideability only in the direction of geometry'
+parser.add_argument(
+    '-f', '--forward-way-value', default='F',
+    help='oneway street attribute value signifying rideability only in the'
+         ' direction of geometry'
 )
-parser.add_argument('-r', '--reverse-way-value', default='T',
-    help='oneway street attribute value signifying rideability only against the direction of geometry'
+parser.add_argument(
+    '-r', '--reverse-way-value', default='T',
+    help='oneway street attribute value signifying rideability only against'
+         ' the direction of geometry'
 )
-parser.add_argument('-t', '--tolerance', type=float, default=0.001,
+parser.add_argument(
+    '-t', '--tolerance', type=float, default=0.001,
     help='geometry tolerance for node snapping'
 )
 

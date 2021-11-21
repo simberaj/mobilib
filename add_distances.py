@@ -1,3 +1,12 @@
+"""Compute distances for interactions of places.
+
+Spatial interactions, such as commuting flows, often carry information about their
+nature and intensity, but rarely about the distance over which they happen.
+This script can be used to calculate distances between the pairs of interacting
+places, either as the crow flies (the default) or using a road/rail network.
+This is useful to contextualize the interaction strength; for example, some
+commuting metrics are stated in commuters per kilometer of distance.
+"""
 
 import numpy as np
 import pandas as pd
@@ -5,9 +14,8 @@ import geopandas as gpd
 
 import mobilib
 import mobilib.argparser
+import mobilib.core
 import mobilib.routing
-
-# TODO: input network (opt)
 
 parser = mobilib.argparser.default(__doc__)
 mobilib.argparser.add_interactions(parser, add_strength=False)
@@ -20,7 +28,7 @@ parser.add_argument('-d', '--distance-col', default='distance',
     help='name of the distance attribute in the output file'
 )
 parser.add_argument('-D', '--distance-factor', type=float, default=1000,
-    help='factor to divide distance with'
+    help='factor to divide distance with (e.g. to convert from coordinate system units)'
 )
 parser.add_argument('-n', '--network',
     help='compute network distances using this line network (a GDAL-compatible line file)'
@@ -37,7 +45,7 @@ if __name__ == '__main__':
     if not has_inter_geom:
         # to always have place geometries in geometry_from and geometry_to
         inter['geometry'] = np.nan
-    places = mobilib.read_places(args)
+    places = mobilib.core.read_places(args)
     inter_mg = inter.merge(
         places, left_on=args.from_id_col, right_on=args.place_id_col,
         how='left', suffixes=('', '_from')
@@ -75,15 +83,9 @@ if __name__ == '__main__':
         finder = mobilib.routing.RouteFinder(network_gdf)
         print('locating points')
         with finder.locate_points(all_points) as all_nodes:
-            # node_lookup = {
-                # pt.coords[0]: node
-                # for pt, node in zip(all_points, all_nodes)
-            # }
             print('computing paths')
             inter_mg[args.distance_col] = np.array([
                 finder.cost(
-                    # node_lookup[from_pt.coords[0]],
-                    # node_lookup[to_pt.coords[0]],
                     from_pt.coords[0],
                     to_pt.coords[0],
                     args.cost_attribute,

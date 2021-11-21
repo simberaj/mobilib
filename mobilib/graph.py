@@ -1,14 +1,18 @@
+"""Graph-related utilities using Numpy arrays.
 
-import numpy
+Mostly used by the hierarchical settlement system modeling code.
+"""
+
+import numpy as np
 
 
 def shortest_distances_multiplicative(adj):
     # floyd warshall, but with multiplication inside
     lengths = adj.copy()
     for k in range(adj.shape[0]):
-        lengths = numpy.minimum(
+        lengths = np.minimum(
             lengths,
-            lengths[:,k][:,numpy.newaxis] * lengths[k,:][numpy.newaxis,:]
+            lengths[:, k][:, np.newaxis] * lengths[k, :][np.newaxis, :]
         )
     return lengths
 
@@ -17,16 +21,16 @@ def shortest_distances_additive(adj):
     # floyd warshall, but with multiplication inside
     lengths = adj.copy()
     for k in range(adj.shape[0]):
-        lengths = numpy.minimum(
+        lengths = np.minimum(
             lengths,
-            lengths[:,k][:,numpy.newaxis] + lengths[k,:][numpy.newaxis,:]
+            lengths[:,k][:,np.newaxis] + lengths[k,:][np.newaxis,:]
         )
     return lengths
 
     
 def parental_cycles(parents):
     n = parents.size
-    visited = numpy.zeros(n, dtype=bool)
+    visited = np.zeros(n, dtype=bool)
     n_vis = 0
     current = None
     while n_vis < n:

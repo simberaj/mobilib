@@ -1,3 +1,4 @@
+"""Compute some interaction intensity metrics, including bidirectional ones."""
 
 import numpy as np
 import pandas as pd
@@ -8,13 +9,16 @@ import mobilib.argparser
 parser = mobilib.argparser.default(__doc__)
 mobilib.argparser.add_interactions(parser, add_strength=False)
 
-parser.add_argument('out_file',
+parser.add_argument(
+    'out_file',
     help='path to output the CSV with interactions and their relative strengths indicators'
 )
-parser.add_argument('-s', '--strength-col', nargs='+', default=['strength'],
+parser.add_argument(
+    '-s', '--strength-col', nargs='+', default=['strength'],
     help='name of the flow strength attribute(s) in the interactions file'
 )
-parser.add_argument('-d', '--distance-col',
+parser.add_argument(
+    '-d', '--distance-col',
     help='name of the distance attribute in the interactions file'
 )
 

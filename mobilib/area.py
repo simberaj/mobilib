@@ -1,5 +1,9 @@
+"""Tools for areal spatial objects (primarily polygons)."""
+
+import collections
+import math
 import operator
-from typing import List, Tuple, Optional, Dict, Union, Iterable
+from typing import List, Tuple, Optional, Dict, Iterable
 
 import numpy as np
 import pandas as pd
@@ -8,21 +12,36 @@ import shapely.ops
 import shapely.geometry
 import sklearn.cluster
 
-
-import mobilib.neigh
-
-AnyPolygon = Union[
-    shapely.geometry.Polygon,
-    shapely.geometry.MultiPolygon,
-]
+from mobilib.core import AnyPolygon
 
 
 def equalize_polygons(polygons: gpd.GeoSeries,
+                      target_area: float,
                       subdivisions: Optional[gpd.GeoSeries] = None,
                       unsafe_geom: bool = False,
                       ) -> Tuple[gpd.GeoSeries, pd.DataFrame]:
+    """Merge and/or split polygons so that their surface area closely matches the target figure.
+
+    The criterion being minimized is ``abs(1 - area / target_area)``.
+
+    :param polygons: Polygons to adjust. If a polygon is larger than target_area
+        and subdivisions are available, it is split into its subdivisions, which
+        are reaggregated into compact shapes to match target_area.
+        If a polygon is smaller than target_area, it is aggregated with its
+        neighbors.
+    :param target_area: An areal measure in the units of the polygons' CRS
+        that should be closely matched by the output polygons.
+    :param subdivisions: If given, large polygons will be subdivided into
+        aggregates of these units. This would usually be one of the lower
+        hierarchical levels of division (e.g. U.S. counties when polygons are
+        U.S. states).
+    :param unsafe_geom: Account for the fact that the geometries of polygons
+        and subdivisions do not match exactly; use boundaries of polygons
+        where possible, boundaries of subdivisions to subdivide them.
+    :returns: A GeoSeries with the newly created polygons, and a DataFrame
+        mapping its index (id) to the index of the original polygons (orig_id).
+    """
     # target_area = polygons.area.quantile(.5)
-    target_area = 20000000
     print('target area', target_area)
     # --- polygon aggregation
     agg_poly = gpd.GeoSeries(
@@ -38,7 +57,6 @@ def equalize_polygons(polygons: gpd.GeoSeries,
         how='inner',
         op='intersects'
     )['index_right']
-    # return agg_poly, None
     ok_polygons = agg_poly[area_quots <= 1]
     poly_i = len(ok_polygons)
     out_id_map = list(zip(range(poly_i), ok_polygons.index))
@@ -67,7 +85,7 @@ def equalize_polygons(polygons: gpd.GeoSeries,
 def match_geometry(subdivisions: List[AnyPolygon],
                    main_polygon: AnyPolygon,
                    ) -> List[AnyPolygon]:
-    '''Match the subdivisions so that they fully subdivide the main polygon, without outreach.'''
+    """Match the subdivisions so that they fully subdivide the main polygon, without outreach."""
     if np.isclose(main_polygon.area, sum(subdiv.area for subdiv in subdivisions)):
         return subdivisions
     main_polygon = main_polygon.buffer(0)
@@ -93,11 +111,6 @@ def match_geometry(subdivisions: List[AnyPolygon],
             shapely.ops.unary_union([cut_subdiv] + subdiv_comps.get(i, []))
             for i, cut_subdiv in enumerate(cut_subdivs)
         ]
-        # remnant_triangles = [
-            # remnant.intersection(triangle)
-            # for triangle in shapely.ops.triangulate(remnant)
-        # ]
-        # return cut_subdivs + remnant_triangles
 
 
 def aggregate(polygons: List[AnyPolygon],
@@ -116,12 +129,8 @@ def aggregate(polygons: List[AnyPolygon],
         return shapely.ops.unary_union(polygons)
     else:
         group_labels = _centroid_kmeans([poly.centroid for poly in polygons], tgt_n, areas)
-        # if neighbour_table is None:
-            # neighbour_table = list(mobilib.neigh.neighbours(polygons))
-        # neighbour_dict = _to_neighbour_dict(neighbour_table)
-        # opt_labels = _optimize_aggregates(polygons, group_labels, neighbour_dict, target_area)
-        opt_labels = group_labels
-        return _union_groups(polygons, _create_groups(opt_labels))
+        # TODO here, the neighbour table would be used to optimize the aggregates
+        return _union_groups(polygons, group_labels)
 
 
 def _to_neighbour_dict(neighbour_table: List[Tuple[int, int]]) -> Dict[int, List[int]]:
@@ -210,7 +219,7 @@ def _aggregate_updates(polygons: List[AnyPolygon],
                     target_area=target_area,
                 )
                 if crit_delta > 0:
-                    yield ((poly1_i, grp1_i, grp2_i), crit_delta)
+                    yield (poly1_i, grp1_i, grp2_i), crit_delta
 
 
 def aggregation_criterion(polygon: AnyPolygon, target_area: float) -> float:
@@ -239,8 +248,8 @@ def aggregation_criterion_delta(area: float,
             * (from_agg.length + cf - 2 * outward_cf)
             / (2 * math.sqrt(math.pi * to_area_after))
         )
-        - aggregation_criterion(from_agg)
-        - aggregation_criterion(to_agg)
+        - aggregation_criterion(from_agg, target_area=target_area)
+        - aggregation_criterion(to_agg, target_area=target_area)
     )
 
 
@@ -267,4 +276,5 @@ def _union_groups(polygons: List[AnyPolygon],
 
 
 def representative_points(geometry: gpd.GeoSeries) -> gpd.GeoSeries:
+    """Return a GeoSeries of representative points of input geometries."""
     return geometry.map(lambda x: x.representative_point())

@@ -1,19 +1,20 @@
-'''Show places with gaps in a Zipf-like (power law) distributed data.
+"""Show places with gaps in a Zipf-like (power law) distributed data.
 
 These places might be used to determine "natural" bounds to bin the data
 or create eligibility criteria.
-'''
+
+Creates a Matplotlib figure and shows it.
+"""
 
 import os
 from typing import Optional, List
 from numbers import Number
-2
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import sklearn.linear_model
 
-import mobilib
 import mobilib.argparser
 
 
@@ -97,31 +98,38 @@ def plot_output(measures: List[pd.Series],
     
 
 parser = mobilib.argparser.default(__doc__)
-parser.add_argument('-s', '--source', nargs='+', action='append',
+parser.add_argument(
+    '-s', '--source', nargs='+', action='append',
     help='path to semicolon-delimited CSV file followed by names of columns to use'
 )
-parser.add_argument('-F', '--from-value', type=float,
+parser.add_argument(
+    '-F', '--from-value', type=float,
     help='minimum value to consider'
 )
-parser.add_argument('-T', '--to-value', type=float,
+parser.add_argument(
+    '-T', '--to-value', type=float,
     help='maximum value to consider'
 )
-parser.add_argument('-f', '--disp-from-value', type=float,
+parser.add_argument(
+    '-f', '--disp-from-value', type=float,
     help='minimum value to display'
 )
-parser.add_argument('-t', '--disp-to-value', type=float,
+parser.add_argument(
+    '-t', '--disp-to-value', type=float,
     help='maximum value to display'
 )
-parser.add_argument('-e', '--exponent', type=float,
+parser.add_argument(
+    '-e', '--exponent', type=float,
     help='apriori value for power law distribution exponent (default: determine by log-log OLS fit)'
 )
-parser.add_argument('-g', '--gap', type=int, default=1,
+parser.add_argument(
+    '-g', '--gap', type=int, default=1,
     help='gap size to evaluate measure'
 )
-parser.add_argument('-q', '--quiet', action='store_true',
+parser.add_argument(
+    '-q', '--quiet', action='store_true',
     help='do not show log-log OLS plots for exponent derivation'
 )
-
 
 
 if __name__ == '__main__':
@@ -138,10 +146,14 @@ if __name__ == '__main__':
         else:
             source_def = source_def[:-1]
         for colname in source_def[1:]:
-            values = select_values(df[colname] * coef, args.from_value, args.to_value)
-            values.rename(f'{fname}_{colname}', inplace=True)
+            comp_values = select_values(df[colname] * coef, args.from_value, args.to_value)
+            comp_values.rename(f'{fname}_{colname}', inplace=True)
             # series.append(values)
-            exponent = args.exponent if args.exponent else fit_exponent(values, plot=(not args.quiet))
+            comp_exponent = args.exponent
+            if not comp_exponent:
+                comp_exponent = fit_exponent(comp_values, plot=(not args.quiet))
             # exponents.append(exponent)
-            gap_measures.append(calculate_zipf_gaps(values, exponent, spread=args.gap))
+            gap_measures.append(
+                calculate_zipf_gaps(comp_values, comp_exponent, spread=args.gap)
+            )
     plot_output(gap_measures, args.disp_from_value, args.disp_to_value)

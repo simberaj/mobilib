@@ -1,3 +1,4 @@
+"""Old machinery for raster handling."""
 
 import os
 from typing import Tuple
@@ -5,6 +6,8 @@ from typing import Tuple
 import numpy as np
 import gdal
 import osr
+
+# TODO this probably does not work; would be best rewritten using rasterio
 
 
 class World:
@@ -70,6 +73,7 @@ def calculate_bounds(xs, ys, cell_size, extension=0):
         ((ys.max().item() + extension) // cell_size + 1) * cell_size,
     )
 
+
 def to_geotiff(array: np.ndarray,
                path: str,
                world: World,
@@ -89,10 +93,12 @@ def to_geotiff(array: np.ndarray,
     out_raster.SetProjection(osr_crs.ExportToWkt())
     outband.FlushCache()
 
+
 GDAL_TYPES = {
     np.float32: gdal.GDT_Float32,
     np.float64: gdal.GDT_Float64,
 }
+
 
 def gdal_raster_type(dtype):
     return GDAL_TYPES[dtype]

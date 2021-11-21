@@ -1,53 +1,35 @@
-
-'''Create a transfer table to perform areal interpolation between two sets of units by areal weighting.
+"""Create a transfer table to perform areal interpolation by areal weighting.
 
 A transfer table specifies what share of a given source area values is to
-be transferred to a given target area. This can be computed using their 
-area overlaps.
-'''
+be transferred to a given target area. This can be computed using their
+area overlaps, which is a simple and very inaccurate method but has no
+dependencies on external data, making it always available.
+"""
 
-import argparse
-
-import pandas as pd
 import geopandas as gpd
 
-import mobilib
+import mobilib.argparser
 
 
-def intersection_area_fx(gcol1, gcol2):
-    def intersector(row):
-        if row[gcol2] is numpy.nan:
-            return row[gcol1].area
-        else:
-            return row[gcol1].intersection(row[gcol2]).area
-    return intersector
-
-def intersection_fx(gcol1, gcol2):
-    def intersector(row):
-        if row[gcol2] is numpy.nan:
-            return np.nan
-        else:
-            return row[gcol1].intersection(row[gcol2])
-    return intersector
-
-
-parser = argparse.ArgumentParser(
-    description=__doc__,
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter
-)
-parser.add_argument('source_file',
+parser = mobilib.argparser.default(__doc__)
+parser.add_argument(
+    'source_file',
     help='source value layer as a GDAL-compatible polygon file'
 )
-parser.add_argument('target_file',
+parser.add_argument(
+    'target_file',
     help='target area layer as a GDAL-compatible polygon file'
 )
-parser.add_argument('out_table',
+parser.add_argument(
+    'out_table',
     help='path to output the transfer table as a semicolon-delimited CSV'
 )
-parser.add_argument('-s', '--source-id-field', default='id',
+parser.add_argument(
+    '-s', '--source-id-field', default='id',
     help='ID field of the source layer (will be used in the transfer table)'
 )
-parser.add_argument('-t', '--target-id-field', default='id',
+parser.add_argument(
+    '-t', '--target-id-field', default='id',
     help='ID field of the target layer (will be used in the transfer table)'
 )
 

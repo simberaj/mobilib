@@ -3,6 +3,7 @@ import scipy.spatial
 import pandas as pd
 
 import mobilib.argparser
+import mobilib.core
 
 parser = mobilib.argparser.default(__doc__, places=True)
 parser.add_argument('out_file',
@@ -11,7 +12,7 @@ parser.add_argument('out_file',
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    places = mobilib.read_places(args)
+    places = mobilib.core.read_places(args)
     xy = places[[args.x_col, args.y_col]].values
     delaunay = scipy.spatial.Delaunay(xy)
     indptr, tgt_indices = delaunay.vertex_neighbor_vertices

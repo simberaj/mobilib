@@ -1,19 +1,28 @@
+"""Converts raster file(s) to a point layer, optionally clipping to an area."""
 
-'''Converts raster file(s) to a point layer, optionally clipping to an area.'''
-
-import argparse
+import os
 import csv
+from typing import Tuple, Callable
 
 import geopandas as gpd
 import shapely.ops
 import shapely.geometry
 import shapely.prepared
 
-import mobilib
+import mobilib.argparser
+import mobilib.core
 import mobilib.raster
 
+GeomTransformCallable = Callable[
+    [shapely.geometry.base.BaseGeometry],
+    shapely.geometry.base.BaseGeometry
+]
 
-def load_transformations(extentfile, src_srid, tgt_srid):
+
+def load_transformations(extentfile: os.PathLike,
+                         src_srid: int,
+                         tgt_srid: int,
+                         ) -> Tuple[GeomTransformCallable, GeomTransformCallable]:
     if extentfile:
         print('loading extent')
         extent_df = gpd.read_file(extentfile)
@@ -22,20 +31,20 @@ def load_transformations(extentfile, src_srid, tgt_srid):
     else:
         extent_crs = None
         extent = None
-    if args.target_srid:
-        outcrs = mobilib.srid_proj(args.target_srid)
+    if tgt_srid:
+        outcrs = mobilib.core.srid_proj(tgt_srid)
         if extent_crs and extent_crs != outcrs:
             print('reprojecting extent')
-            extent = mobilib.transformation(
-                mobilib.proj(extent_crs), outcrs
+            extent = mobilib.core.transformation(
+                mobilib.core.proj(extent_crs), outcrs
             )(extent)
     elif extent_crs:
         outcrs = extent_crs
     else:
         outcrs = None
-    if outcrs and args.source_srid:
+    if outcrs and src_srid:
         print('preparing coordinate transformation')
-        main_trans = mobilib.transformation(mobilib.srid_proj(args.source_srid), outcrs)
+        main_trans = mobilib.core.transformation(mobilib.core.srid_proj(src_srid), outcrs)
     else:
         main_trans = lambda x: x
     if extent:
@@ -47,24 +56,29 @@ def load_transformations(extentfile, src_srid, tgt_srid):
     return main_trans, filter
 
 
-
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('inraster', nargs='+',
+parser = mobilib.argparser.default(__doc__)
+parser.add_argument(
+    'inraster', nargs='+',
     help='input raster files with an associated world file'
 )
-parser.add_argument('outfile',
+parser.add_argument(
+    'outfile',
     help='path to output semicolon-delimited CSV file'
 )
-parser.add_argument('-e', '--extent',
+parser.add_argument(
+    '-e', '--extent',
     help='GDAL-compatible polygon file to which to clip the output'
 )
-parser.add_argument('-n', '--nodata', nargs='+', type=int,
+parser.add_argument(
+    '-n', '--nodata', nargs='+', type=int,
     help='NoData value of the rasters (will be ignored)'
 )
-parser.add_argument('-s', '--source-srid', type=int,
+parser.add_argument(
+    '-s', '--source-srid', type=int,
     help='EPSG ID of the coordinate system of the input rasters'
 )
-parser.add_argument('-r', '--target-srid', type=int,
+parser.add_argument(
+    '-r', '--target-srid', type=int,
     help='EPSG ID of the coordinate system to use on output'
 )
 
@@ -81,5 +95,3 @@ if __name__ == '__main__':
                 pt = reproj(shapely.geometry.Point(ptarr))
                 if extent_filter(pt):
                     wr.writerow((pt.x, pt.y, value))
-            
-    

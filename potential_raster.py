@@ -1,12 +1,8 @@
-import os
-import argparse
+"""Compute geographic antipotential and store it as a raster."""
 
-import numpy as np
 import pandas as pd
-import geopandas as gpd
-import imageio
 
-import mobilib
+import mobilib.core
 import mobilib.potential
 import mobilib.argparser
 import mobilib.raster
@@ -74,7 +70,7 @@ def transfer_column(src_df, tgt_df, src_col, tgt_col, default):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    sources_df = prepare_sources(mobilib.read_places(args), **vars(args))
+    sources_df = prepare_sources(mobilib.core.read_places(args), **vars(args))
     potential_arr, world = mobilib.potential.raster(
         sources_df,
         args.cell_size,
@@ -84,25 +80,3 @@ if __name__ == '__main__':
     mobilib.raster.to_geotiff(
         potential_arr, args.output_raster, world, srid=output_srid
     )
-    # df = pd.DataFrame({
-        # 'x': [2.41, 4.89],
-        # 'y': [2.96, 7.11],
-        # 'magnitude': [3, 1],
-        # 'halfrange': [1, 1],
-        # 'fullrange': [.1, .1],
-    # })
-    # print(df)
-    # output = mobilib.potential.raster(df)
-    # print((output * 1000).astype(int))
-    
-    
-    # TODO create potential raster
-    # then potential subtraction script that will remove a fraction of the
-    # potential
-    # demand_gdf = gpd.read_file(args.demand_points)
-    
-    # if args.demand_magnitude_fld is None:
-        # supply_all_gdf['magnitude'] = 1
-    # else:
-        # supply_all_gdf['magnitude'] = supply_all_gdf[args.demand_magnitude_fld]
-    # supply_all_gdf = 

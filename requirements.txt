@@ -1,0 +1,8 @@
+numpy
+scipy
+pandas
+geopandas
+shapely
+scikit-learn
+pyproj
+networkx

@@ -4,6 +4,7 @@ import shapely.geometry
 
 import mobilib
 import mobilib.argparser
+import mobilib.core
 import mobilib.relations
 
 
@@ -20,7 +21,7 @@ if __name__ == '__main__':
     orig_cols = inter_df.columns.tolist()
     id_cols = [args.from_id_col, args.to_id_col]
     rem_cols = [col for col in orig_cols if col not in id_cols]
-    place_df = mobilib.read_places(args)
+    place_df = mobilib.core.read_places(args)
     line_df = mobilib.relations.to_lines(
         inter_df[id_cols + rem_cols],
         place_df.set_index(args.place_id_col),

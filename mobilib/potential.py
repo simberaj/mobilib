@@ -1,3 +1,4 @@
+"""Compute geographic potential across space."""
 
 from typing import Tuple
 

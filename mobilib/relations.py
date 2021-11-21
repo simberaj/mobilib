@@ -1,3 +1,5 @@
+"""Generate interactions from user anchor points and manage them."""
+
 from typing import Dict, Optional
 
 import numpy as np
@@ -5,12 +7,15 @@ import pandas as pd
 import geopandas as gpd
 import shapely.geometry
 
+import mobilib.core
+
 DEFAULT_HOME_CODE = 'k'
 DEFAULT_WORK_CODE = 't'
 DEFAULT_MULTIFX_CODE = 'm'
 
 
 class Aimer:
+    """Determine anchor weights for anchor interaction from their types."""
     def aim(self, types: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
@@ -35,39 +40,6 @@ class TypedAimer(Aimer):
 
     def __repr__(self):
         return '<Aimer{}>'.format(self.type_fractions)
-
-
-def ipf(values: np.ndarray,
-        rowsums: np.ndarray,
-        colsums: np.ndarray,
-        tol: float = 1e-9,
-        max_iter: int = 100,
-        ) -> np.ndarray:
-    # print((values * 1000).astype(int))
-    # print(rowsums, colsums)
-    rowsums = rowsums.reshape(-1, 1)
-    colsums = colsums.reshape(1, -1)
-    prevalues = values.copy()
-    for i in range(max_iter):
-        prevalues[:] = values[:]
-        prerowsums = values.sum(axis=1)
-        values *= rowsums / np.where(prerowsums == 0, 1, prerowsums).reshape(-1, 1)
-        # print('R')
-        # print((values * 1000).astype(int))
-        precolsums = values.sum(axis=0)
-        values *= colsums / np.where(precolsums == 0, 1, precolsums).reshape(1, -1)
-        # print('C')
-        # print((values * 1000).astype(int))
-        diff = abs(prevalues - values).sum()
-        if diff <= tol:
-            prerowsums = values.sum(axis=1)
-            values *= rowsums / np.where(prerowsums == 0, 1, prerowsums).reshape(-1, 1)
-            # print(i)
-            break
-    # print((values * 1000).astype(int))
-    # print((values.sum(axis=1) * 1000).astype(int))
-    # print((values.sum(axis=0) * 1000).astype(int))
-    return values
 
 
 class AimedRelationGenerator:
@@ -95,10 +67,15 @@ class AimedRelationGenerator:
         return elig
 
     def __repr__(self) -> str:
-        return  '<{0.__class__.__name__}({0.name},{0.source_aimer}-{0.target_aimer},selfinter={0.selfinter})>'.format(self)
+        return  (
+            f'<{self.__class__.__name__}({self.name},'
+            f'{self.source_aimer}-{self.target_aimer},'
+            f'selfinter={self.selfinter})>'
+        )
 
 
 class ProportionalRelationGenerator(AimedRelationGenerator):
+    """Generate many fractional interactions between all pairs of eligible anchors."""
     def relate(self,
                importances: np.ndarray,
                types: np.ndarray,
@@ -117,11 +94,16 @@ class ProportionalRelationGenerator(AimedRelationGenerator):
                 return np.diag(sources / source_sum)
             else:
                 return None
-        result = ipf(elig, sources / source_sum, targets / target_sum)
+        result = mobilib.core.ipf(
+            elig,
+            sources / source_sum,
+            targets / target_sum
+        )
         return result
 
 
 class MaximumRelationGenerator(AimedRelationGenerator):
+    """Generate a single interaction between the two most important anchors."""
     def relate(self,
                importances: np.ndarray,
                types: np.ndarray,
@@ -208,6 +190,11 @@ def default_generators(home_code: str = DEFAULT_HOME_CODE,
 def to_lines(rel_df: pd.DataFrame,
              pts: gpd.GeoDataFrame,
              ) -> gpd.GeoDataFrame:
+    """Create a line geodataframe from an interaction dataframe.
+
+    Joins the point geodataframe to the interactions and creates straight lines
+    connecting the interacting pairs of points.
+    """
     from_id, to_id = rel_df.columns[:2]
     all_df = (
         rel_df
@@ -219,6 +206,61 @@ def to_lines(rel_df: pd.DataFrame,
         for pt1, pt2 in zip(all_df['from_geometry'], all_df['to_geometry'])
     ]
     return all_df.drop(['from_geometry', 'to_geometry'], axis=1)
+
+
+def from_anchors(df: pd.DataFrame,
+                 generators: Iterable[RelationGenerator],
+                 site_id_col: str,
+                 user_id_col: str,
+                 importance_col: str,
+                 anchor_type_col: str,
+                 ) -> pd.DataFrame:
+    """Generate interactions from user anchor points using given generators.
+
+    :param df: A dataframe containing site_id_col, user_id_col (key columns),
+        importance_col and anchor_type_col.
+    :param generators: Generators producing interactions.
+    :param site_id_col: Column with ID of site or spatial unit defining the
+        user anchor.
+    :param user_id_col: Column with ID of user. Used only to identify anchors
+        belonging to the same person, does not appear in the output.
+    :param importance_col: Anchor point importance measure column. May be
+        arbitrarily scaled.
+    :param anchor_type_col: Anchor point type (home, work, etc.) column. Used
+        by some generators to select eligible anchors, etc.
+    :return: A dataframe with two site ID columns (from_- and to_-prefixed
+        site ID column name) and interaction magnitude columns, one per
+        provided generator and using their names for column names.
+        The interaction magnitude is measured in number of users and may be
+        fractional depending on the generator.
+    """
+    sites = numpy.sort(df[site_id_col].unique())
+    n_sites = len(sites)
+    series = []
+    for gener in generators:
+        matrix = numpy.zeros((n_sites, n_sites))
+        for uid, subdf in df.groupby(user_id_col):
+            ids = subdf[site_id_col].values
+            rels = gener.relate(
+                subdf[importance_col].values,
+                subdf[anchor_type_col].values,
+                ids=ids,
+            )
+            site_indexes = numpy.searchsorted(sites, ids)
+            if rels is not None:
+                for src_i, tgt_i in enumerate(site_indexes):
+                    matrix[tgt_i,site_indexes] += rels[src_i]
+        rowis, colis = numpy.nonzero(matrix)
+        series.append(pd.Series(
+            matrix[rowis,colis],
+            index=[sites[rowis],sites[colis]],
+            name=gener.name,
+        ))
+    out_df = series[0]
+    for ser in series[1:]:
+        out_df = pd.merge(out_df, ser, left_index=True, right_index=True, how='outer')
+    out_df.index.names = ['from_' + site_id_col, 'to_' + site_id_col]
+    return out_df.fillna(0).reset_index()
 
 
 if __name__ == '__main__':

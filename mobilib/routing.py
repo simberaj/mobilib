@@ -1,9 +1,9 @@
+"""Utilities for route finding on geographical networks."""
 
 import contextlib
 from typing import Any, Dict, Optional, List, Union, Tuple, Iterable
 
 import numpy as np
-import pandas as pd
 import geopandas as gpd
 import networkx as nx
 import shapely.geometry
@@ -44,23 +44,6 @@ class RouteFinder:
         except nx.NetworkXNoPath:
             return None
 
-    # def cost_to_many(self,
-                     # from_point: shapely.geometry.point.Point,
-                     # to_points: List[shapely.geometry.point.Point],
-                     # attr: str,
-                     # ) -> List[Union[None, float]]:
-        # with self.locate_points([from_point] + to_points) as nodes:
-            # from_node = nodes[0]
-            # costs = []
-            # for to_node in nodes[1:]:
-                # try:
-                    # cost = nx.shortest_path_length(self.network, from_node, to_node, weight=attr)
-                # except nx.NetworkXNoPath:
-                    # cost = None
-                # costs.append(cost)
-            # return costs
-    
-
     @contextlib.contextmanager
     def locate_points(self,
                       points: Iterable[shapely.geometry.point.Point],
@@ -86,9 +69,6 @@ class RouteFinder:
         self.network.add_edges_from(added_edges)
         yield nodes
         self.network.remove_edges_from(added_edges)
-                # print(point, match_line, distance, from_node, to_node)
-                # print(added_edges)
-                # raise NotImplementedError
     
     def _joining_edges(self, from_node, added_node, to_node):
         from_pt, added_pt, to_pt = [
@@ -114,13 +94,16 @@ class RouteFinder:
             for key, val in edge.items()
         }
     
-    def get_nearest_line(self, point: shapely.geometry.point.Point) -> shapely.geometry.linestring.LineString:
+    def get_nearest_line(self,
+                         point: shapely.geometry.point.Point,
+                         ) -> Union[shapely.geometry.linestring.LineString, None]:
         nearest = self.line_tree.nearest(point)
         distance = point.distance(nearest)
         return None if distance > self.max_match_distance else nearest
             
 
 class PatchedSTRtree:
+    """An upgrade of shapely's STR tree to allow efficient 'nearest' queries."""
     def __init__(self,
                  geoms: List[shapely.geometry.base.BaseGeometry],
                  base_search_distance: float = 1.,
@@ -180,6 +163,7 @@ def from_lines(gdf: gpd.GeoDataFrame,
     return nx.from_pandas_edgelist(
         gdf, '_source', '_target', edge_attr=True, create_using=nx.DiGraph
     )
+
 
 def to_lines(graph: nx.DiGraph,
              crsdef: Dict[str, Any],

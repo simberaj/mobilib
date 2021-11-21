@@ -1,3 +1,4 @@
+"""Markov chain modeling code, with focus on mean first passage times (MFPT)."""
 
 from typing import Union, Optional
 
@@ -10,6 +11,12 @@ import scipy.sparse.linalg
 def mfpt(trans: Union[np.ndarray, scipy.sparse.csr_matrix],
          stat: Optional[np.ndarray] = None,
          ) -> np.ndarray:
+    """Compute Markov mean first passage times.
+
+    :param trans: A Markov transition matrix.
+    :param stat: A stationary distribution of the matrix. If not given or None,
+        it is computed from the transition matrix, but providing it saves time.
+    """
     if scipy.sparse.issparse(trans):
         trans = np.asarray(trans.todense())
     if not trans.size:
@@ -29,6 +36,7 @@ def mfpt(trans: Union[np.ndarray, scipy.sparse.csr_matrix],
 
 
 def stationary_distribution(p: np.ndarray) -> np.ndarray:
+    """Compute a Markov chain stationary distribution from a transition matrix."""
     if scipy.sparse.issparse(p):
         eigval, eigvec = scipy.sparse.linalg.eigs(p.T, k=6, sigma=1)
     else:
@@ -38,6 +46,7 @@ def stationary_distribution(p: np.ndarray) -> np.ndarray:
 
 
 def transition_matrix(inter: Union[np.ndarray, scipy.sparse.csr_matrix]) -> np.ndarray:
+    """Create a Markov transition matrix from an interaction matrix by normalization."""
     if scipy.sparse.issparse(inter):
         return scipy.sparse.diags(1 / inter.sum(axis=1).A.ravel()).dot(inter)
     else:
@@ -47,10 +56,12 @@ def transition_matrix(inter: Union[np.ndarray, scipy.sparse.csr_matrix]) -> np.n
 def fundamental_matrix(trans: Union[np.ndarray, scipy.sparse.csr_matrix],
                        stat: Optional[np.ndarray] = None,
                        ) -> Union[np.ndarray, scipy.sparse.csr_matrix]:
+    """Compute the fundamental matrix of the given Markov transition matrix."""
     return np.linalg.inv(np.eye(stat.size) - trans + stat[np.newaxis, :])
 
 
 def componental_mfpt(trans: np.ndarray, **kwargs) -> np.ndarray:
+    """Compute Markov mean first passage times per connected component of the chain."""
     n_comps, comp_labels = scipy.sparse.csgraph.connected_components(
         trans, **kwargs
     )
@@ -72,4 +83,3 @@ def componental_mfpt(trans: np.ndarray, **kwargs) -> np.ndarray:
             )
             times[absorbing_i, absorbing_i] = 1
     return times
-    

@@ -1,13 +1,24 @@
-# coding: utf8
+"""Polygon neighbourhood computation and adjustment utilities."""
 
+from typing import List, Optional, Iterable, Tuple, TypeVar, Union
+
+import geopandas as gpd
 import shapely
 import shapely.wkt
 import shapely.ops
 import shapely.strtree
 import shapely.prepared
 
+from mobilib.core import AnyPolygon
 
-def neighbours(geoms, gids=None, tolerance=None):
+T = TypeVar('T')
+
+
+def neighbours(geoms: Union[List[AnyPolygon], gpd.GeoSeries],
+               gids: Optional[List[T]] = None,
+               tolerance: float = None,
+               ) -> Iterable[Tuple[T, T]]:
+    """Find neighbor pairs of given geometries."""
     if gids is None:
         gids = list(range(len(geoms)))
     mem_to_ids = {id(geom) : gid for geom, gid in zip(geoms, gids)}
@@ -23,10 +34,11 @@ def neighbours(geoms, gids=None, tolerance=None):
             if prepgeom.intersects(neigh_geom):
                 neigh_gid = mem_to_ids[id(neigh_geom)]
                 if neigh_gid > gid:
-                    yield (gid, neigh_gid)
+                    yield gid, neigh_gid
 
 
-def fix_polygons(geoms, tolerance=.01):
+def fix_polygons(geoms: gpd.GeoSeries, tolerance: float = .01) -> gpd.GeoSeries:
+    """Fix geometries of neighboring polygons so that they align nicely."""
     geoms = geoms.copy()
     for from_i, to_i in neighbours(geoms.copy(), tolerance=tolerance):
         if from_i > to_i:
@@ -39,8 +51,6 @@ def fix_polygons(geoms, tolerance=.01):
     return geoms
 
 
-
-    
 if __name__ == '__main__':
     n = 4
     tests = [

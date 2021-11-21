@@ -1,20 +1,15 @@
-'''Transform a geospatial file to a GeoCSV (WKT).'''
+"""Transform a geospatial file to a GeoCSV (WKT)."""
 
 import operator
 
-import pandas as pd
 import geopandas as gpd
 
 import mobilib.argparser
 
 
 parser = mobilib.argparser.default(__doc__)
-parser.add_argument('in_file',
-    help='GDAL-compatible file'
-)
-parser.add_argument('out_file',
-    help='path to output CSV'
-)
+parser.add_argument('in_file', help='GDAL-compatible file')
+parser.add_argument('out_file', help='path to output CSV')
 
 if __name__ == '__main__':
     args = parser.parse_args()

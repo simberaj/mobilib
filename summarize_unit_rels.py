@@ -1,4 +1,4 @@
-'''Summarize interactions by source unit and regional relation classification of target.'''
+"""Summarize interactions by source unit and regional relation classification of target."""
 
 import argparse
 
@@ -81,15 +81,31 @@ if __name__ == '__main__':
         ] = 'to_largest'
     inter_types = full_df['_type'].unique().tolist()
     out_inter_types = [args.strength_col + '_' + it for it in inter_types]
-    type_df = full_df.groupby([args.from_id_col, '_type'])[args.strength_col].sum().reset_index(level=1).pivot(columns='_type', values=args.strength_col).fillna(0).rename(columns=dict(zip(inter_types, out_inter_types)))
+    type_df = (
+        full_df
+        .groupby([args.from_id_col, '_type'])
+        [args.strength_col].sum()
+        .reset_index(level=1)
+        .pivot(columns='_type', values=args.strength_col)
+        .fillna(0)
+        .rename(columns=dict(zip(inter_types, out_inter_types)))
+    )
     for col in type_df:
         if 'to_largest' in col:
             core_col = col.replace('to_largest', 'to_core')
             if core_col in type_df:
                 type_df[core_col] += type_df[col]
-    out_df = unit_df.set_index(args.unit_id_col).merge(type_df, left_index=True, right_index=True, how='left', suffixes=(False, False))
-    out_df[args.strength_col + '_out_sum'] = inter_df.groupby(args.from_id_col)[args.strength_col].sum()
-    out_df[args.strength_col + '_in_sum'] = inter_df.groupby(args.to_id_col)[args.strength_col].sum()
+    out_df = (
+        unit_df
+        .set_index(args.unit_id_col)
+        .merge(type_df, left_index=True, right_index=True, how='left', suffixes=(False, False))
+    )
+    out_df[args.strength_col + '_out_sum'] = (
+        inter_df.groupby(args.from_id_col)[args.strength_col].sum()
+    )
+    out_df[args.strength_col + '_in_sum'] = (
+        inter_df.groupby(args.to_id_col)[args.strength_col].sum()
+    )
     out_inter_types += [
         args.strength_col + '_out_sum',
         args.strength_col + '_in_sum',

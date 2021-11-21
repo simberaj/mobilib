@@ -1,19 +1,16 @@
-'''Delimit multiple cores of regions based on interaction intensity.
+"""Delimit multiple cores of regions based on interaction intensity.
 
 Aggregate spatial units into groups that are joined by interactions over
 specified intensity, selecting the largest member's identifier to represent
 the group. A flow in one direction is sufficient; perform bidirectional
 aggregation beforehand if you want decisions on bidirectional flows.
-'''
+"""
 
-import sys
 import difflib
-import logging
 from typing import Any, List, Tuple, Set, Iterable
 
 import pandas as pd
 
-import mobilib
 import mobilib.argparser
 
 
@@ -22,8 +19,8 @@ def to_joining_relations(df: pd.DataFrame,
                          to_col: str,
                          ) -> Set[Tuple[Any, Any]]:
     return set(
-        tuple(sorted(rec))
-        for rec in df[[from_col, to_col]].itertuples(index=False, name=None)
+        (from_id, to_id) if from_id <= to_id else (to_id, from_id)
+        for from_id, to_id in df[[from_col, to_col]].itertuples(index=False, name=None)
     )
 
 
@@ -75,25 +72,33 @@ def common_colname_part(one: str, two: str) -> str:
 
 
 parser = mobilib.argparser.default(__doc__, interactions=True)
-parser.add_argument('-S', '--min-strength',
+parser.add_argument(
+    '-S', '--min-strength',
     help='minimum interaction strength threshold to create multicores'
 )
-parser.add_argument('-I', '--inter-importance-col',
-    help='interaction attribute to determine largest multicore member by largest inflow (default: equal to --strength-col)'
+parser.add_argument(
+    '-I', '--inter-importance-col',
+    help='interaction attribute to determine largest multicore member'
+         ' by largest inflow (default: equal to --strength-col)'
 )
-parser.add_argument('-u', '--unit-file',
+parser.add_argument(
+    '-u', '--unit-file',
     help='interacting unit data as a semicolon-delimited CSV'
 )
-parser.add_argument('-i', '--unit-id-col', default='id',
+parser.add_argument(
+    '-i', '--unit-id-col', default='id',
     help='name of the unit ID attribute (in the unit file and in the output)'
 )
-parser.add_argument('-C', '--preset-col',
+parser.add_argument(
+    '-C', '--preset-col',
     help='name of additional presets in the unit file to use as multicore joiners'
 )
-parser.add_argument('-U', '--unit-importance-col',
+parser.add_argument(
+    '-U', '--unit-importance-col',
     help='unit attribute to determine largest multicore member by value'
 )
-parser.add_argument('out_file',
+parser.add_argument(
+    'out_file',
     help='path to output the multi-core assignments as a semicolon-delimited CSV'
 )
 

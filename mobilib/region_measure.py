@@ -1,5 +1,7 @@
+"""Measure arbitrary groupings of units based on functional region criteria."""
 
 import inspect
+import re
 from typing import List, Dict, Optional
 
 import numpy as np
@@ -7,6 +9,7 @@ import pandas as pd
 
 
 TYPE_PREFIX: str = '_is_type_'
+
 
 def _get_type_columns(df: pd.DataFrame) -> List[str]:
     return [col for col in df.columns if col.startswith(TYPE_PREFIX)]
@@ -68,7 +71,10 @@ def names(units: pd.DataFrame, largest_prop: str, largest_fraction: float) -> pd
 
 
 def unit_prop_sums(labeled_units: pd.DataFrame) -> pd.DataFrame:
-    '''Sum given properties from units to region in total and by unit type (absolute and relative).'''
+    """Sum given properties from units to region.
+
+    Sums the properties both in total and by unit type (absolute and relative).
+    """
     # Also count units implicitly.
     if 'unit_count' not in labeled_units.columns:
         labeled_units = labeled_units.assign(unit_count=1)
@@ -89,7 +95,9 @@ def unit_prop_sums(labeled_units: pd.DataFrame) -> pd.DataFrame:
         # Join all-region data and compute fractions.
         by_type_merged = by_type.join(by_region)
         for prop in props:
-            by_type[f'{prop}_{unit_type}_frac'] = by_type_merged.eval(f'{prop}_{unit_type} / {prop}_region')
+            by_type[f'{prop}_{unit_type}_frac'] = by_type_merged.eval(
+                f'{prop}_{unit_type} / {prop}_region'
+            )
         type_dfs.append(by_type)
     # Join everything together.
     measures = by_region.join(type_dfs).fillna(0).drop(
@@ -114,7 +122,7 @@ def _intersum_measure_name(from_type: str, to_type: str) -> str:
 
 
 def interaction_sums(labeled_interactions: pd.DataFrame) -> pd.DataFrame:
-    '''Sum interaction strengths by type across the region.'''
+    """Sum interaction strengths by type across the region."""
     within_region = labeled_interactions.eval('region_from == region_to')
     across_regions = ~within_region
     labeled_interactions = labeled_interactions.assign(**{
@@ -154,13 +162,11 @@ def interaction_sums(labeled_interactions: pd.DataFrame) -> pd.DataFrame:
     return measures
 
 
-# def membership_functions(labeled_interactions: pd.DataFrame,
-                         # labeled_units: 
-                         # ) -> pd.DataFrame:
-# -   membership functions: weighted fuzzy, weighted, 
-        # name: memfx_<memtype>_<fuzztype>, memmass_(...)
-        # Hampl membership function value (U-C / (U-C + U-O))
-        # Feng membership function value (U-R / (U-R + U-O))
+# def membership_functions(labeled_interactions: pd.DataFrame, labeled_units:
+# could be added: membership functions: weighted fuzzy, weighted,
+# name: memfx_<memtype>_<fuzztype>, memmass_(...)
+# Hampl membership function value (U-C / (U-C + U-O))
+# Feng membership function value (U-R / (U-R + U-O))
 
 
 INTEGRITY_EXPRS: Dict[str, str] = {
@@ -182,7 +188,7 @@ def integrities(interaction_sums: pd.DataFrame) -> pd.DataFrame:
 INTER_OPTS: str = 'largest|core|hinterland|region|out|all'
 INTER_REGEX: str = fr'inter_({INTER_OPTS})_to_({INTER_OPTS})'
 
-MEASURES: Dict[str, List[str]] = {
+MEASURES: Dict[str, str] = {
     'names': 'name',
     'unit_prop_sums': fr'(?!{INTER_REGEX})\w+_(region|((largest|core|hinterland)(_frac)?))',
     'interaction_sums': INTER_REGEX,
@@ -201,8 +207,8 @@ def calculate(units: pd.DataFrame,
               largest_prop: str = 'mass',
               largest_fraction: float = 1.,
               ) -> pd.DataFrame:
-    '''Calculate numerical measures for regions given by the spatial units and their interactions.
-    
+    """Calculate numerical measures for regions given by the spatial units and their interactions.
+
     :param units: A dataset of units constituting the regions. It must contain a ``region`` column
         with region identifiers. It may contain a ``name`` column with the unit names to be
         assembled to region names, a ``is_core`` column with a binary flag whether the unit is
@@ -220,7 +226,7 @@ def calculate(units: pd.DataFrame,
         largest units and not all core units.)
     :returns: A dataframe with region measures, one column per each, with region identifiers from
         the units dataframe as its index.
-    '''
+    """
     if only_measures is None:
         end_measurers = [MEASURE_FXS[name] for name in MEASURES]
     else:
@@ -237,7 +243,6 @@ def calculate(units: pd.DataFrame,
     }
     while compute_stack:
         for fx in compute_stack:
-            # print(fx, compute_stack)
             fx_args = list(inspect.signature(fx).parameters.keys())
             missing_args = [arg for arg in fx_args if arg not in data]
             if missing_args:

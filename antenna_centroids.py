@@ -1,5 +1,4 @@
-
-'''Computes centroids of antenna coverage areas (cells).'''
+"""Compute centroids of antenna coverage areas (cells)."""
 
 import argparse
 
@@ -65,7 +64,7 @@ if __name__ == '__main__':
     print('computing antenna locations')
     antennas = antennas[antennas[args.xcol] > 0]
     azimuths = antennas[args.azimuthcol]
-    antennas.loc[azimuths > 360,args.azimuthcol] = numpy.nan
+    antennas.loc[azimuths > 360, args.azimuthcol] = numpy.nan
     antennas[X_MODIF_COL] = (
         antennas[args.xcol]
         + numpy.cos(numpy.radians(azimuths.fillna(90)))

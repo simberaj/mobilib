@@ -1,4 +1,7 @@
-'''Dissolve units to regions through a given mapping CSV.'''
+"""Dissolve units to regions through a given mapping CSV.
+
+Handles multimember cores and naming by largest unit.
+"""
 
 import numpy as np
 import pandas as pd
@@ -6,6 +9,7 @@ import geopandas as gpd
 import shapely.geometry
 
 import mobilib.argparser
+
 
 def merge_areas(unit_df, area_gdf, unit_id, area_id):
     if area_gdf[area_id].dtype != unit_df[unit_id].dtype:
@@ -22,17 +26,14 @@ def merge_areas(unit_df, area_gdf, unit_id, area_id):
     )
     unit_df[unit_id].fillna(unit_df[area_id], inplace=True)
     return unit_df
-    
+
+
 def dissolve_areas(unit_df, reg_col):
     return gpd.GeoDataFrame(unit_df, geometry='geometry').dropna(
         subset=['geometry']
     )[['geometry', reg_col]].dissolve(by=reg_col)['geometry'].apply(fix_holes)
-        # lambda poly: poly.simplify(.1, False)
-    # )
-    # print(diss)
-    # return diss.apply(
-        # lambda poly: poly.simplify(.1, False)
-    # )
+
+
 def fix_holes(poly):
     if hasattr(poly, 'geoms'):
         return shapely.geometry.MultiPolygon([fix_holes(geom) for geom in poly.geoms])
@@ -45,7 +46,7 @@ def fix_holes(poly):
             return shapely.geometry.Polygon(poly.exterior, holes)
         else:
             return poly
-    return poly
+
 
 def aggregate_attrs(unit_df, agg_cols, reg_col, agg_func, prefix='', count_units=True):
     agg_dict = {
@@ -56,44 +57,51 @@ def aggregate_attrs(unit_df, agg_cols, reg_col, agg_func, prefix='', count_units
         agg_dict[prefix + 'unit_count'] = pd.NamedAgg(column=reg_col, aggfunc='count')
     return unit_df.groupby(reg_col).aggregate(**agg_dict)
 
+
 def to_wkt(geom):
-    # print(geom)
-    # print(type(geom))
     return geom.wkt
 
+
 parser = mobilib.argparser.default(__doc__)
-parser.add_argument('unit_file',
+parser.add_argument(
+    'unit_file',
     help='semicolon-delimited CSV with unit data and mapping to regions'
 )
-parser.add_argument('out_file',
+parser.add_argument(
+    'out_file',
     help='path to output file with dissolved regions'
 )
-parser.add_argument('-a', '--area-file',
+parser.add_argument(
+    '-a', '--area-file',
     help='CSV file mapping polygon IDs to IDs of the dissolved objects'
 )
-parser.add_argument('-u', '--unit-id-col', default='id',
+parser.add_argument(
+    '-u', '--unit-id-col', default='id',
     help='name of the unit ID attribute in the unit file'
 )
-parser.add_argument('-r', '--unit-region-col', default='region',
+parser.add_argument(
+    '-r', '--unit-region-col', default='region',
     help='name of the region ID attribute in the unit file'
 )
-parser.add_argument('-c', '--unit-core-col', default='is_core',
+parser.add_argument(
+    '-c', '--unit-core-col', default='is_core',
     help='name of the core indicator attribute in the unit file'
 )
-# parser.add_argument('-n', '--unit-name-col',
-    # help='name of the unit name attribute in the unit file'
-# )
-parser.add_argument('-U', '--area-unit-id-col',
+parser.add_argument(
+    '-U', '--area-unit-id-col',
     help='name of the area ID attribute in the area file'
-    ' (default: same as --unit-id-col)'
+         ' (default: same as --unit-id-col)'
 )
-parser.add_argument('-s', '--sum-cols', nargs='+',
+parser.add_argument(
+    '-s', '--sum-cols', nargs='+',
     help='unit columns to aggregate by sum to regions'
 )
-parser.add_argument('-l', '--distinguish-largest-by-col', default='mass',
+parser.add_argument(
+    '-l', '--distinguish-largest-by-col', default='mass',
     help='distinguish largest unit of region by this attribute'
 )
-parser.add_argument('-H', '--distinguish-hinterland', action='store_true',
+parser.add_argument(
+    '-H', '--distinguish-hinterland', action='store_true',
     help='unit columns to aggregate by sum to regions'
 )
 
@@ -137,18 +145,18 @@ if __name__ == '__main__':
             for hint_col in hint_df.columns:
                 sum_df[hint_col].fillna(0, inplace=True)
     if is_largdisting_def:
-        max_ids = unit_df.set_index(args.unit_id_col).groupby(args.unit_region_col)[args.distinguish_largest_by_col].idxmax().values
+        max_ids = (
+            unit_df
+            .set_index(args.unit_id_col)
+            .groupby(args.unit_region_col)
+            [args.distinguish_largest_by_col].idxmax()
+            .values
+        )
         sum_df = sum_df.merge(aggregate_attrs(
             unit_df[unit_df[args.unit_id_col].isin(max_ids)],
             args.sum_cols, args.unit_region_col, np.sum, prefix='largest_', count_units=False
         ), how='left', left_index=True, right_index=True)
-    # if args.unit_name_col:
-        # for 
     sum_df.reset_index(inplace=True)
     if geometry is not None:
         sum_df = sum_df.merge(geometry.apply(to_wkt), left_on=args.unit_region_col, right_index=True, how='left')
-        # sum_df['geometry'] = geometry
-        # gpd.GeoDataFrame(sum_df, geometry='geometry').to_file(args.out_file)
-    # print(sum_df.dtypes)
-    # print(sum_df.iloc[0].to_dict())
     sum_df.to_csv(args.out_file, sep=';', index=False)

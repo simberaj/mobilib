@@ -1,12 +1,15 @@
-import sys
+"""Perform classical functional region delimitation."""
+
 import logging
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Optional, TypeVar
 
 import numpy as np
 import pandas as pd
 
 
 class EvaluatorInterface:
+    """Objects that evaluate fitness of regions."""
+
     def feed(self, interactions: pd.Series, unit_props: pd.DataFrame) -> None:
         raise NotImplementedError
 
@@ -20,89 +23,81 @@ class EvaluatorInterface:
         raise NotImplementedError
 
 
-class PropertylessEvaluator:
-    def feed(self, interactions, unit_props):
+class PropertylessEvaluator(EvaluatorInterface):
+    name: str = NotImplemented
+
+    def feed(self, interactions: pd.Series, unit_props: pd.DataFrame) -> None:
         pass
 
-    def eval_all(self, regions, cores):
+    def eval_all(self, regions: pd.Series, cores: pd.Series) -> pd.DataFrame:
         return pd.DataFrame(self._compute(regions, cores).rename(self.name))
 
-    def get_required_properties(self):
+    def get_required_properties(self) -> List[str]:
         return []
 
-    def get_criteria(self):
+    def get_criteria(self) -> List[str]:
         return [self.name]
+
+    def _compute(self, regions: pd.Series, cores: pd.Series) -> pd.Series:
+        raise NotImplementedError
 
 
 class ConstantEvaluator(PropertylessEvaluator):
+    """Evaluate all regions as 1."""
     name = 'constant'
 
-    def _compute(self, regions, cores):
+    def _compute(self, regions: pd.Series, cores: pd.Series) -> pd.Series:
         return pd.Series(1, index=regions.unique())
 
 
 class UnitCountEvaluator(PropertylessEvaluator):
+    """Evaluate regions by count of units."""
     name = 'unit_count'
 
-    def _compute(self, regions, cores):
+    def _compute(self, regions: pd.Series, cores: pd.Series) -> pd.Series:
         return regions.value_counts(sort=False)
 
 
 class SourceFlowSumEvaluator(PropertylessEvaluator):
+    """Evaluate regions by summing the magnitude of outgoing interactions."""
     name = 'sourceflow_sum'
+    flowsums: pd.Series
 
-    def feed(self, interactions, unit_props):
+    def feed(self, interactions: pd.Series, unit_props: pd.DataFrame) -> None:
         self.flowsums = interactions.groupby(level=0).sum()
 
-    def _compute(self, regions, cores):
+    def _compute(self, regions: pd.Series, cores: pd.Series) -> pd.Series:
         return self.flowsums.groupby(regions).sum()
 
 
-class PropertySumEvaluator:
+class PropertySumEvaluator(EvaluatorInterface):
+    """Evaluate regions by summing a property of their constituent units."""
+    prop: pd.Series
+
     def __init__(self, criterion):
         self.criterion = criterion
 
-    def feed(self, interactions, unit_props):
+    def feed(self, interactions: pd.Series, unit_props: pd.DataFrame) -> None:
         try:
             self.prop = unit_props[self.criterion]
         except KeyError as err:
             raise LookupError(f'{self.criterion} unit property not specified') from err
 
-    def eval_all(self, regions, cores):
+    def eval_all(self, regions: pd.Series, cores: pd.Series) -> pd.DataFrame:
         return pd.DataFrame(self.prop.groupby(regions).sum().rename(self.criterion))
 
-    def get_required_properties(self):
+    def get_required_properties(self) -> List[str]:
         return [self.criterion]
 
-    def get_criteria(self):
+    def get_criteria(self) -> List[str]:
         return [self.criterion]
 
 
 class HinterlandSumEvaluator(PropertySumEvaluator):
+    """Evaluate regions by summing a property of their non-core units."""
     PREFIX = 'hinterland_'
 
-    def eval_all(self, regions, cores):
-        # print()
-        # print('PROP')
-        # print(self.prop)
-        # print('REGIONS')
-        # print(regions)
-        # print('CORES')
-        # print(cores)
-        # print('PROP-REG')
-        # print(self.prop.groupby(regions).sum())
-        # print('PROP-NONCORE')
-        # print(cores.index)
-        # print(self.prop.index)
-        # print(self.prop[cores.index])
-        # # print(self.prop[~cores])
-        # print(self.prop[cores.index][~cores].groupby(regions).sum())
-        # print('gzjk')
-        # print(self.prop.groupby(regions).sum().sub(
-            # self.prop[cores.index][cores].groupby(regions).sum(),
-            # fill_value=0
-        # ).astype(self.prop.dtype).rename(self.criterion))
-        # print('asdf')
+    def eval_all(self, regions: pd.Series, cores: pd.Series) -> pd.DataFrame:
         return pd.DataFrame(
             self.prop.groupby(regions).sum().sub(
                 self.prop[cores.index][cores].groupby(regions).sum(),
@@ -111,15 +106,17 @@ class HinterlandSumEvaluator(PropertySumEvaluator):
         )
 
 
-class CompoundEvaluator:
-    def __init__(self, subevals):
+class CompoundEvaluator(EvaluatorInterface):
+    """Evaluate regions by multiple values or criteria."""
+
+    def __init__(self, subevals: List[EvaluatorInterface]):
         self.subevals = subevals
 
-    def feed(self, interactions, unit_props):
+    def feed(self, interactions: pd.Series, unit_props: pd.DataFrame) -> None:
         for subeval in self.subevals:
             subeval.feed(interactions, unit_props)
 
-    def eval_all(self, regions, cores):
+    def eval_all(self, regions: pd.Series, cores: pd.Series) -> pd.DataFrame:
         evaluations = self.subevals[0].eval_all(regions, cores)
         for subeval in self.subevals[1:]:
             subevaluation = subeval.eval_all(regions, cores)
@@ -127,13 +124,14 @@ class CompoundEvaluator:
                 evaluations[col] = subevaluation[col]
         return evaluations
 
-    def get_required_properties(self):
+    def get_required_properties(self) -> List[str]:
         return list(set(
-            prop for subeval in self.subevals
-                for prop in subeval.get_required_properties()
+            prop
+            for subeval in self.subevals
+            for prop in subeval.get_required_properties()
         ))
 
-    def get_criteria(self):
+    def get_criteria(self) -> List[str]:
         crits = []
         for subeval in self.subevals:
             for crit in subeval.get_criteria():
@@ -143,15 +141,15 @@ class CompoundEvaluator:
 
 
 PROPERTYLESS_EVALUATORS = {
-    c.name : c for c in PropertylessEvaluator.__subclasses__()
+    c.name: c for c in PropertylessEvaluator.__subclasses__()
 }
 
 
-def evaluator(criterion=[]):
+def create_evaluator(criterion: List[str] = []) -> EvaluatorInterface:
     if not criterion:
-        return mobilib.region.ConstantEvaluator()
+        return ConstantEvaluator()
     elif len(criterion) > 1:
-        return CompoundEvaluator([evaluator([critname]) for critname in criterion])
+        return CompoundEvaluator([create_evaluator([critname]) for critname in criterion])
     else:
         criterion = criterion[0]
         if criterion in PROPERTYLESS_EVALUATORS:
@@ -163,28 +161,35 @@ def evaluator(criterion=[]):
 
 
 class VerifierInterface:
+    """Objects that verify that the evaluation of a region is good enough."""
     def verify(self, value: Any) -> bool:
         raise NotImplementedError
 
 
-class YesmanVerifier:
-    def verify(self, value):
+class YesmanVerifier(VerifierInterface):
+    """Always make all regions pass the criterion."""
+
+    @staticmethod
+    def verify(value: Any) -> bool:
         return True
 
 
-class MinimumVerifier:
-    def __init__(self, threshold):
+class MinimumVerifier(VerifierInterface):
+    """Only allow those regions with an evaluation at least the given value."""
+
+    def __init__(self, threshold: float):
         self.threshold = threshold
 
-    def verify(self, value):
+    def verify(self, value: float) -> bool:
         return value >= self.threshold
 
 
-class CompoundVerifier:
-    def __init__(self, partials):
+class CompoundAndVerifier(VerifierInterface):
+    """Allow only those regions that satisfy all partial verifications."""
+    def __init__(self, partials: List[VerifierInterface]):
         self.partials = partials
 
-    def verify(self, *args):
+    def verify(self, *args) -> bool:
         return all(
             partial.verify(value)
             for partial, value in zip(self.partials, args)
@@ -195,86 +200,101 @@ class TargeterInterface:
     pass
 
 
+ID = TypeVar('ID')
+
+
 class InteractionTargeter:
-    def __init__(self, source_core=True, target_core=True):
+    """Select aggregation targets for units based on largest interaction."""
+
+    interactions: pd.Series
+
+    def __init__(self, source_core: bool = True, target_core: bool = True):
         self.source_core = source_core
         self.target_core = target_core
 
-    def feed(self, interactions, unit_props):
+    def feed(self, interactions: pd.Series, unit_props: pd.DataFrame) -> None:
         self.interactions = interactions
 
-    def target(self, units, regions, cores):
+    def target(self, units: ID, regions: pd.Series, cores: pd.Series) -> ID:
+        """Select a target for a single unit."""
         strengths = self._get_strengths(units, regions, cores)
         if strengths.empty:
             return np.nan
         else:
             return strengths.groupby(level=1).sum().idxmax()
 
-    def targets(self, units, regions, cores):
+    def targets(self, units: pd.Index, regions: pd.Series, cores: pd.Series) -> pd.Series:
+        """Select targets for multiple units."""
         strengths = self._get_strengths(units, regions, cores)
         if strengths.empty:
             return pd.Series(np.nan, index=units)
         else:
             return strengths.groupby(level=0).idxmax()
 
-    def _get_strengths(self, units, regions, cores):
+    def _get_strengths(self, units: pd.Index, regions: pd.Series, cores: pd.Series) -> pd.Series:
         if self.source_core:
             # select only core units for interaction sources
             sources = cores[units][cores].index
         else:
             sources = units
-        # interactions to targets outside the given units
-        # try:
-        # print(sources)
-        # print(self.interactions)
-        # print(units)
         strengths = self.interactions.reindex(
             index=sources, level=0
         ).drop(units, level=1, errors='ignore')
-        # except FutureWarning:
-            # print(strengths.to_dict())
-            # print(sources)
-            # raise RuntimeError
         if strengths.empty:
             return strengths
-        # print(strengths.to_dict())
         target_units = strengths.index.get_level_values(1)
         if self.target_core:
-            # print(strengths)
-            # print(cores[target_units])
-            # print(list(target_units))
-            # print([item in cores.index for item in target_units])
             strengths *= cores[target_units].values
         # group targets by region and return
         regs = strengths.reset_index(level=1)
         target_col, value_col = regs.columns
-        # print(regs.to_dict())
-        # print(target_units)
-        # print(regions[target_units].to_dict())
         regs[target_col] = regs[target_col].map(regions[target_units.unique()])
         return regs.set_index(target_col, append=True)[value_col].groupby(level=(0,1)).sum()
 
 
 class AggregatorInterface:
-    def aggregate(self, regions: pd.Series, cores: pd.Series) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
+    """Objects that aggregate units into regions."""
+    def aggregate(self,
+                  regions: pd.Series,
+                  cores: pd.Series,
+                  ) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         raise NotImplementedError
 
 
-class StepwiseAggregator:
-    def __init__(self, evaluator, verifier, targeter, dissolve_region=False, sort_criterion=None):
+class StepwiseAggregator(AggregatorInterface):
+    """Aggregate given regions successively until they all satisfy a criterion."""
+    def __init__(self,
+                 evaluator: EvaluatorInterface,
+                 verifier: VerifierInterface,
+                 targeter: InteractionTargeter,
+                 dissolve_region: bool = False,
+                 sort_criterion: Optional[str] = None):
         self.evaluator = evaluator
         self.verifier = verifier
         self.targeter = targeter
         self.dissolve_region = dissolve_region
         self.sort_criterion = sort_criterion
 
-    def aggregate(self, regions, cores):
+    def aggregate(self,
+                  regions: pd.Series,
+                  cores: pd.Series,
+                  ) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
+        """Aggregate the provided regions.
+
+        :param regions: A mapping of unit IDs to IDs of units forming regional
+            centres.
+        :param cores: A boolean Series denoting which units are cores of their
+            regions.
+        :returns: A tuple of three objects. The first two are aggregated
+            versions of regions and cores after the criteria of this aggregator
+            were satisfied, and the third is the stage dataframe outlining
+            at which values of the criteria the specific regions were
+            aggregated.
+        """
         # logging.debug('launching aggregation')
         regions = regions.copy()
         cores = cores.copy()
         evaluations = self.evaluator.eval_all(regions, cores)
-        # print(evaluations)
-        # raise RuntimeError
         sort_crit = (
             self.sort_criterion if self.sort_criterion is not None
             else evaluations.columns[0]
@@ -284,7 +304,6 @@ class StepwiseAggregator:
         # self._show_evaluations(evaluations)
         while True:
             aggreg_code = evaluations[sort_crit].idxmin()
-            # sys.stderr.write(str(aggreg_code) + ' ' + str(sort_crit) + '\n')
             aggreg_eval = tuple(evaluations.loc[aggreg_code,:])
             if self.verifier.verify(*aggreg_eval):
                 # this one is stable, set evaluation to infinity and continue
@@ -293,7 +312,7 @@ class StepwiseAggregator:
                     # logging.debug('all regions stable, terminating')
                     break
                 else:
-                    evaluations.loc[aggreg_code,sort_crit] = np.inf
+                    evaluations.loc[aggreg_code, sort_crit] = np.inf
             else:   # aggregate the bastard
                 # logging.debug('aggregating region %s with value %s', aggreg_code, aggreg_eval)
                 stages.append(aggreg_eval)
@@ -317,15 +336,15 @@ class StepwiseAggregator:
                 evaluations.update(reevals)
                 evaluations.drop(aggreg_code, inplace=True)
         stages.extend(evaluations.itertuples(name=None, index=False))
-        # for row in evaluations.itertuples(name=None):
-            # print('  %s: %s' % (row[0], ', '.join(str(val) for val in row[1:])))
+        # self._show_evaluations(evaluations)
         stage_df = pd.DataFrame.from_records(stages, columns=evaluations.columns)
         return regions, cores, stage_df
 
-    # def _show_evaluations(self, evaluations):
-        # for row in evaluations.itertuples(name=None):
-            # print('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
-            # logging.debug('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
+    @staticmethod
+    def _show_evaluations(evaluations: pd.DataFrame) -> None:
+        for row in evaluations.itertuples(name=None):
+            print('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
+            logging.debug('  %s: %s', row[0], ', '.join([str(val) for val in row[1:]]))
 
     def _get_targets(self, aggreg_units, regions, cores):
         if self.dissolve_region:

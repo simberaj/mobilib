@@ -1,5 +1,6 @@
+'''Generate spatial interaction tables from an anchor point table.
 
-'''Generates location relation tables from an anchor point table.'''
+'''
 
 import os
 import argparse
@@ -10,7 +11,6 @@ import pandas as pd
 import mobilib.relations
 
 
-
 parser = argparse.ArgumentParser(
     description=__doc__,
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -19,8 +19,7 @@ parser.add_argument('infile',
     help='input anchor point table as semicolon-delimited CSV'
 )
 parser.add_argument('outfile',
-    help='path to output relation tables (will be suffixed by generator name\
-    and .csv)'
+    help='path to output relation tables (will be suffixed by generator name and .csv)'
 )
 parser.add_argument('-s', '--site-id',
     default='site_id', help='site or zone id column name', metavar='COLNAME'
@@ -57,12 +56,11 @@ parser.add_argument('-g', '--generator',
 )
 
 
-def generate_all(df, generators, site_id, user_id, importance, type, **kwargs):
+def generate_all(df, generators, site_id, user_id, importance, type):
     sites = numpy.sort(df[site_id].unique())
     n_sites = len(sites)
     series = []
     for gener in generators:
-        print(gener.name)
         matrix = numpy.zeros((n_sites, n_sites))
         for uid, subdf in df.groupby(user_id):
             ids = subdf[site_id].values
@@ -96,5 +94,12 @@ if __name__ == '__main__':
     if args.generator:
         generators = [g for g in generators if g.name == args.generator]
     df = pd.read_csv(args.infile, sep=';')
-    rels_df = generate_all(df, generators, **vars(args))
+    rels_df = mobilib.relations.from_anchors(
+        df,
+        generators,
+        site_id_col=args.site_id,
+        user_id_col=args.user_id,
+        importance_col=args.importance,
+        anchor_type_col=args.type,
+    )
     rels_df.to_csv(args.outfile, index=False, sep=';')

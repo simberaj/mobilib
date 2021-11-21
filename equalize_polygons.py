@@ -1,11 +1,26 @@
+"""Merge and/or split polygons so that their surface area closely matches the target figure.
+
+If a polygon is larger than target_area and subdivisions are available,
+it is split into its subdivisions, which are reaggregated into compact shapes
+to match target_area. If a polygon is smaller than target_area, it is
+aggregated with its neighbors.
+The criterion being minimized is ``abs(1 - area / target_area)``.
+
+An interface to ``mobilib.area.equalize_polygons``.
+"""
+
 import geopandas as gpd
 
 import mobilib.area
 import mobilib.argparser
+import mobilib.core
 
 parser = mobilib.argparser.default(__doc__, areas=True)
 parser.add_argument('-s', '--subdiv-file',
     help='areas to use as subdivisions of equalized areas as a GDAL-compatible polygon file'
+)
+parser.add_argument('-t', '--target-area', type=float,
+    help='target area to approximate by the output polygons'
 )
 parser.add_argument('-p', '--subdiv-poly-id-col',
     help='column in the subdivisions file mapping to area IDs'
@@ -30,13 +45,6 @@ if __name__ == '__main__':
     areas_eq, id_mapping = mobilib.area.equalize_polygons(
         areas.geometry,
         subdivisions=subdiv_geom,
-        # subdiv_map=subdiv_poly_ids,
         unsafe_geom=args.unsafe_geom,
     )
-    gpd.GeoDataFrame(geometry=areas_eq).to_file(args.out_file)
-    # areas.geometry = areas.geometry.map(lambda x: x.representative_point())
-    # # print(dir(areas.geometry))
-    # areas['wkt'] = areas.geometry.map(lambda x: x.wkt)
-    # areas['x'] = areas.geometry.x
-    # areas['y'] = areas.geometry.y
-    # areas.drop(['geometry'], axis=1).to_csv(args.out_file, sep=';', index=False)
+    mobilib.core.write_gdf(gpd.GeoDataFrame(geometry=areas_eq), args.out_file)

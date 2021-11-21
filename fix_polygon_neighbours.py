@@ -1,23 +1,22 @@
-'''Dissolve areas through a given mapping CSV.'''
-
-import argparse
+'''Fix geometries of neighboring polygons so that they align nicely.'''
 
 import geopandas as gpd
 
+import mobilib.argparser
 import mobilib.neigh
 
 
-parser = argparse.ArgumentParser(
-    description=__doc__,
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter
-)
-parser.add_argument('areafile',
+parser = mobilib.argparser.default(__doc__)
+parser.add_argument(
+    'areafile',
     help='GDAL-compatible polygon file with areas to fix neighbourhood in'
 )
-parser.add_argument('outfile',
-    help='path to output file with fixed areas'
+parser.add_argument(
+    'outfile',
+    help='path to output a GDAL-compatible file with fixed areas'
 )
-parser.add_argument('-t', '--tolerance', type=float, default=.01,
+parser.add_argument(
+    '-t', '--tolerance', type=float, default=.01,
     help='tolerance to which to snap vertices of neighbours'
 )
 

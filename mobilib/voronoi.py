@@ -1,3 +1,4 @@
+"""Compute ordinary Voronoi diagrams in Shapely geometries."""
 
 import operator
 

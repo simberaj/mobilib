@@ -96,7 +96,7 @@ def output(unit_df, regions, cores, out_path):
 
 
 def create_evaluator(args):
-    evaluator = mobilib.region.evaluator(
+    evaluator = mobilib.region.create_evaluator(
         [criterion for criterion, threshold in args.verify_criterion]
     )
     for criterion in evaluator.get_required_properties():
@@ -116,7 +116,7 @@ def create_verifier(args):
     elif len(partials) == 1:
         return partials[0]
     else:
-        return mobilib.region.CompoundVerifier(partials)
+        return mobilib.region.CompoundAndVerifier(partials)
 
 
 def create_targeter(args):

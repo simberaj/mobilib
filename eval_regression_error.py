@@ -1,3 +1,5 @@
+"""Evaluate regression error in given data files by producing HTML reports."""
+
 import argparse
 import io
 import os
@@ -50,13 +52,14 @@ def evaluate(preds, trues, report_path=None, round=None):
 
 def dict_to_table(data, heads, rowHead=False):
     if isinstance(data, list):
-        data = {key : [str(item[key]) for item in data] for key in data[0]}
+        data = {key: [str(item[key]) for item in data] for key in data[0]}
     else:
-        data = {key : [str(value)] for key, value in data.items()}
+        data = {key: [str(value)] for key, value in data.items()}
     rows = []
     for key, name in heads:
         rows.append([name] + data[key])
     return list_to_table(rows, colHead=True, rowHead=rowHead)
+
 
 def list_to_table(rows, colHead=False, rowHead=False):
     htmlRows = []
@@ -64,6 +67,7 @@ def list_to_table(rows, colHead=False, rowHead=False):
     for row in rows[(1 if rowHead else 0):]:
         htmlRows.append(row_to_html(row, 'td', 'th' if colHead else None))
     return '<table><tbody><tr>' + '</tr><tr>'.join(htmlRows) + '</tr></tbody></table>'
+
 
 def row_to_html(row, tag, firstTag=None):
     if firstTag:
@@ -73,8 +77,10 @@ def row_to_html(row, tag, firstTag=None):
         end = end_tag(tag)
         return start + (end + start).join(row) + end
 
+
 def start_tag(tag):
     return '<' + tag + '>'
+
 
 def end_tag(tag):
     return '</' + tag + '>'
@@ -317,4 +323,3 @@ if __name__ == '__main__':
     print(metric_df.head(20))
     if args.metric_file:
         metric_df.to_csv(args.metric_file, sep=';', index=False)
-    

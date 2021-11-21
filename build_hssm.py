@@ -4,8 +4,9 @@ import datetime
 import numpy as np
 import pandas as pd
 
-import mobilib.smod
+import mobilib.hssm
 import mobilib.argparser
+
 
 def impl_conv(value):
     if value.isdigit():
@@ -17,7 +18,7 @@ def impl_conv(value):
 
 
 parser = mobilib.argparser.default(__doc__, interactions=True)
-parser.add_argument('out_file', help='file to write the output OD result')
+parser.add_argument('out_file', help='file to write the output model table')
 parser.add_argument('-p', '--place-file',
     help='file with further information about places')
 parser.add_argument('-i', '--place-id-col',
@@ -43,12 +44,12 @@ if __name__ == '__main__':
     if args.from_id_col: from_col = args.from_id_col
     if args.to_id_col: to_col = args.to_id_col
     if args.strength_col: strength_col = args.strength_col
-    rels, ids = mobilib.smod.Relations.from_dataframe(
+    rels, ids = mobilib.hssm.Relations.from_dataframe(
         reldf, from_col, to_col, strength_col
     )
-    criterion = mobilib.smod.fitness_criterion(args.criterion)
+    criterion = mobilib.hssm.fitness_criterion(args.criterion)
     builder_params = {k: impl_conv(v) for k, v in args.param} if args.param else {}
-    builder = mobilib.smod.model_builder(
+    builder = mobilib.hssm.model_builder(
         args.builder,
         criterion=criterion,
         **builder_params,

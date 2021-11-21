@@ -267,28 +267,6 @@ class Model:
         )
         return cls.from_arrays(parents, stages, index=index)
 
-    # def binding_matrix(self, rels: Relations) -> scipy.sparse.coo_matrix:
-        # diag = scipy.sparse.diags([np.diag(rels.matrix)], offsets=[0], format='coo')
-        # conn_df = self.connection_df()
-        # from_is = self.index.get_indexer(conn_df[self.INDEX_COL])
-        # to_is = self.index.get_indexer(conn_df[self.PARENT_COL])
-        # conn_values_along = rels.matrix[from_is, to_is]
-        # conn_values_cnter = rels.matrix[to_is, from_is]
-        # conn_df['value'] = np.where(
-            # conn_df[self.ORG_COL],
-            # np.minimum(conn_values_along, conn_values_cnter),
-            # conn_values_along
-        # )
-        # values = conn_df['value'].values
-        # return (
-            # diag
-            # + scipy.sparse.coo_matrix((values, (from_is, to_is)), shape=diag.shape)
-            # + scipy.sparse.coo_matrix((values, (to_is, from_is)), shape=diag.shape)
-        # )
-        # # bmatrix[from_is, to_is] =
-        # # bmatrix[to_is, from_is] = conn_df['value']
-        # # return bmatrix.tocsr()
-
     def connection_df(self) -> pd.DataFrame:
         self.hier, self.organics    # to have secondary columns ready
         conn_df = (
@@ -309,14 +287,10 @@ class Model:
         conn_add_simples_df = self._join_on_parent(
             conn_df.query(f'not {self.ORG_COL}'), org_conn_df
         )
-        # print('CA')
-        # print(conn_add_simples_df)
         # For non-head units in organic subsystems, add connections to other non-head units.
         conn_add_org_head_df = self._join_on_parent(org_conn_df, org_conn_df).query(
             f'{self.INDEX_COL} > {self.PARENT_COL}'
         )
-        # print('CH')
-        # print(conn_add_org_head_df)
         # For non-head units in organic subsystems, add connections to their head's parent.
         conn_add_head_tgt_df = org_conn_df.merge(
             pd.concat([conn_df, conn_add_simples_df]),
@@ -326,32 +300,12 @@ class Model:
         )[[f'{self.INDEX_COL}_src', self.PARENT_COL, self.ORG_COL]].rename(
             columns={f'{self.INDEX_COL}_src': self.INDEX_COL}
         )
-        # print('CT')
-        # print(conn_add_head_tgt_df)
-        # from_organic: outgoing hierarchical connection from an organic system
-        all_conn_df = pd.concat([
-            # conn_df.assign(from_organic=False, to_organic=False),
-            # conn_add_simples_df.assign(from_organic=False, to_organic=True),
-            # conn_add_org_head_df.assign(from_organic=False, to_organic=False, **{self.ORG_KEY: True}),
-            # conn_add_head_tgt_df.assign(from_organic=True, to_organic=False),
-            # conn_add_org_head_df.assign(**{self.ORG_COL: True}),
-            # conn_df[['id', 'parent']].assign(ctype='TN'),
-            # conn_add_simples_df[['id', 'parent']].assign(ctype='TO'),
-            # conn_add_org_head_df[['id', 'parent']].assign(ctype='WO'),
-            # conn_add_head_tgt_df[['id', 'parent']].assign(ctype='?'),
-            # conn_df.assign(ctype='TN'),
-            # conn_add_simples_df.assign(ctype='TO'),
-            # conn_add_org_head_df.assign(ctype='WO'),
-            # conn_add_head_tgt_df.assign(ctype='?'),
+        return pd.concat([
             conn_df,
             conn_add_simples_df.assign(**{self.ORG_COL: False}),
             conn_add_org_head_df.assign(**{self.ORG_COL: True}),
             conn_add_head_tgt_df.assign(**{self.ORG_COL: False}),
         ], ignore_index=True)
-        # org_heads = org_conn_df[self.PARENT_COL].unique()
-        # all_conn_df.loc[all_conn_df[self.INDEX_COL].isin(org_heads),'from_organic'] = True
-        # all_conn_df.loc[all_conn_df[self.PARENT_COL].isin(org_heads),'to_organic'] = True
-        return all_conn_df
 
     def _join_on_parent(self, df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
         indexcol_key_tgt = f'{self.INDEX_COL}_tgt'

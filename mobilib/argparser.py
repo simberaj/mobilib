@@ -1,8 +1,6 @@
+"""Precomposed argument parsers for this package's scripts."""
 
 import argparse
-
-import pandas as pd
-
 
 def default(docstring: str,
             interactions: bool = False,
@@ -11,10 +9,10 @@ def default(docstring: str,
             add_places_id: bool = True,
             add_interaction_strength: bool = True,
             ):
-    '''Create a default argument parser with docstring as main help.
+    """Create a default argument parser with docstring as main help.
 
     Optionally, also add some common groups of options.
-    '''
+    """
     parser = argparse.ArgumentParser(
         description=docstring,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -67,4 +65,3 @@ def add_places(parser, add_id: bool = True):
     parser.add_argument('-c', '--srid', default=4326,
         help='EPSG SRID of the place coordinates (for CSV)'
     )
-
