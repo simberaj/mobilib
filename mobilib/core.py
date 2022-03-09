@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import shapely.geometry
+import shapely.geometry.base
 import shapely.ops
 import pyproj
 
@@ -71,7 +72,7 @@ def srid_proj(srid: int) -> pyproj.Proj:
 
 def transformation(from_proj: pyproj.Proj,
                    to_proj: pyproj.Proj,
-                   ) -> Callable[[shapely.geometry.BaseGeometry], shapely.geometry.BaseGeometry]:
+                   ) -> Callable[[shapely.geometry.base.BaseGeometry], shapely.geometry.base.BaseGeometry]:
     """Build a projection function from one CRS to the other."""
     projtrans = functools.partial(pyproj.transform, from_proj, to_proj)
     shtrans = shapely.ops.transform
@@ -111,7 +112,7 @@ def wkt_gdf(df: pd.DataFrame,
 
 def load_extent(path: os.PathLike,
                 target_srid: Optional[int] = None,
-                ) -> shapely.geometry.BaseGeometry:
+                ) -> shapely.geometry.base.BaseGeometry:
     """Load an extent polygon from a file, optionally reprojecting to another CRS.
 
     Only the first geometry found in the file is used as the extent. If None

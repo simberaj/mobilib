@@ -33,6 +33,8 @@ Run the scripts as follows:
     -   `transfer_table_aw` to substitute `transfer_table` by a simpler areal
         weighting process that is less accurate but does not require the
         weighting layer
+-   (not covered in the article) functionality in `mobilib.diffpriv` to
+    apply differential privacy anonymization to the obtained interaction values
 -   `calibrate_rels` to calibrate interaction values to census or other
     calibration data
 -   `rels_to_lines` to visualize the created interactions into a line
@@ -64,8 +66,8 @@ Run the scripts as follows:
 
 
 ## Functional region delimitation and measurement
->   Komárek, M., Marada, M., Šimbera, J.: Metropolitní areály v Česku.
-    (work in progress)
+>   Komárek, M., Marada, M., Šimbera, J.: Metropolitní polynodální jádra jako
+    základ nové regionální organizace. Geografie (work in progress).
 
 The main body of the code is located in `mobilib.region` where regions can be
 formed by aggregation, and in `mobilib.region_measure` where arbitrary

@@ -1,6 +1,6 @@
 """Generate interactions from user anchor points and manage them."""
 
-from typing import Dict, Optional
+from typing import List, Dict, Optional, Iterable
 
 import numpy as np
 import pandas as pd
@@ -149,7 +149,7 @@ def default_generators(home_code: str = DEFAULT_HOME_CODE,
                        multi_code: str = DEFAULT_MULTIFX_CODE,
                        multi_home_frac: float = .5,
                        selfinter: bool = True
-                       ):
+                       ) -> List[AimedRelationGenerator]:
     home_aimer = TypedAimer({
         home_code: 1,
         multi_code: multi_home_frac,
@@ -209,7 +209,7 @@ def to_lines(rel_df: pd.DataFrame,
 
 
 def from_anchors(df: pd.DataFrame,
-                 generators: Iterable[RelationGenerator],
+                 generators: Iterable[AimedRelationGenerator],
                  site_id_col: str,
                  user_id_col: str,
                  importance_col: str,
