@@ -130,16 +130,16 @@ if __name__ == '__main__':
         geometry = dissolve_areas(unit_df, args.unit_region_col)
     else:
         geometry = None
-    sum_df = aggregate_attrs(unit_df, args.sum_cols, args.unit_region_col, np.sum)
+    sum_df = aggregate_attrs(unit_df, args.sum_cols, args.unit_region_col, 'sum')
     if is_core_def:
         sum_df = sum_df.merge(aggregate_attrs(
             unit_df[unit_df[args.unit_core_col]],
-            args.sum_cols, args.unit_region_col, np.sum, prefix='core_'
+            args.sum_cols, args.unit_region_col, 'sum', prefix='core_'
         ), how='left', left_index=True, right_index=True)
         if args.distinguish_hinterland:
             hint_df = aggregate_attrs(
                 unit_df[~unit_df[args.unit_core_col]],
-                args.sum_cols, args.unit_region_col, np.sum, prefix='hinterland_'
+                args.sum_cols, args.unit_region_col, 'sum', prefix='hinterland_'
             )
             sum_df = sum_df.merge(hint_df, how='left', left_index=True, right_index=True)
             for hint_col in hint_df.columns:
@@ -154,9 +154,14 @@ if __name__ == '__main__':
         )
         sum_df = sum_df.merge(aggregate_attrs(
             unit_df[unit_df[args.unit_id_col].isin(max_ids)],
-            args.sum_cols, args.unit_region_col, np.sum, prefix='largest_', count_units=False
+            args.sum_cols, args.unit_region_col, 'sum', prefix='largest_', count_units=False
         ), how='left', left_index=True, right_index=True)
     sum_df.reset_index(inplace=True)
     if geometry is not None:
-        sum_df = sum_df.merge(geometry.apply(to_wkt), left_on=args.unit_region_col, right_index=True, how='left')
+        sum_df = sum_df.merge(
+            geometry.apply(to_wkt).rename("geometry"),
+            left_on=args.unit_region_col,
+            right_index=True,
+            how='left'
+        )
     sum_df.to_csv(args.out_file, sep=';', index=False)

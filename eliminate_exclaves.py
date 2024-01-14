@@ -127,7 +127,7 @@ if __name__ == '__main__':
     exclave_gdf.reset_index(inplace=True)
     if args.weighting_points:
         weighting_gdf = mobilib.core.read_gdf(
-            args.weighting_points, x_col=args.x_col, y_col=args.y_col, srid=args.weighting_srid
+            args.weighting_points, xcol=args.x_col, ycol=args.y_col, srid=args.weighting_srid
         )
         wcol = args.weighting_col
         if not wcol:

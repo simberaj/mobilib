@@ -299,6 +299,7 @@ class StepwiseAggregator(AggregatorInterface):
             self.sort_criterion if self.sort_criterion is not None
             else evaluations.columns[0]
         )
+        max_val = np.array([np.iinfo(np.int32).max]).astype(evaluations[sort_crit].dtype)[0]
         stages = []
         # logging.debug('initial evaluation of %d regions', len(evaluations.index))
         # self._show_evaluations(evaluations)
@@ -308,11 +309,11 @@ class StepwiseAggregator(AggregatorInterface):
             if self.verifier.verify(*aggreg_eval):
                 # this one is stable, set evaluation to infinity and continue
                 # logging.debug('region %s stable at %s', aggreg_code, aggreg_eval)
-                if not np.isfinite(evaluations.loc[aggreg_code,sort_crit]) or len(aggreg_eval) == 1:
+                if evaluations.loc[aggreg_code, sort_crit] >= max_val or len(aggreg_eval) == 1:
                     # logging.debug('all regions stable, terminating')
                     break
                 else:
-                    evaluations.loc[aggreg_code, sort_crit] = np.inf
+                    evaluations.loc[aggreg_code, sort_crit] = max_val
             else:   # aggregate the bastard
                 # logging.debug('aggregating region %s with value %s', aggreg_code, aggreg_eval)
                 stages.append(aggreg_eval)
