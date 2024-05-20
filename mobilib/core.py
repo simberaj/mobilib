@@ -176,7 +176,7 @@ def read_csv_gdf(path: os.PathLike,
 
 def read_places(args) -> gpd.GeoDataFrame:
     """A shorthand for read_gdf from commandline arguments."""
-    return read_gdf(args.place_file, args.x_col, args.y_col, args.srid)
+    return read_gdf(args.place_file, xcol=args.x_col, ycol=args.y_col, srid=args.srid)
 
 
 def read_nonspatial(path: os.PathLike, **kwargs) -> pd.DataFrame:

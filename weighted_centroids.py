@@ -23,9 +23,9 @@ def weighted_centroids(areas: Iterable[shapely.geometry.base.BaseGeometry],
         if not geom.is_valid:
             geom = geom.buffer(0)
         weighted = shapely.ops.unary_union([
-            weighter.intersection(geom)
-            for weighter in weighters_tree.query(geom)
-            if weighter.intersects(geom)
+            weighters[weighter_i].intersection(geom)
+            for weighter_i in weighters_tree.query(geom)
+            if weighters[weighter_i].intersects(geom)
         ])
         if weighted.is_empty:
             yield geom.centroid

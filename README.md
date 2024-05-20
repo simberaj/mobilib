@@ -66,8 +66,9 @@ Run the scripts as follows:
 
 
 ## Functional region delimitation and measurement
->   Komárek, M., Marada, M., Šimbera, J.: Metropolitní polynodální jádra jako
-    základ nové regionální organizace. Geografie (work in progress).
+>   Komárek, M., Marada, M., Šimbera, J. (2023): Metropolitní polynodální jádra
+    jako základ nové regionální organizace. Geografie, 128, 1, 49−74.
+    https://doi.org/10.37040/geografie.2023.004
 
 The main body of the code is located in `mobilib.region` where regions can be
 formed by aggregation, and in `mobilib.region_measure` where arbitrary

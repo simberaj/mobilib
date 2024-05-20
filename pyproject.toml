@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "mobilib"
+version = "0.1.0"
+description = ""
+authors = ["Jan Šimbera <simberaj@natur.cuni.cz>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+geopandas = ">=0.14.2"
+matplotlib = "*"
+scipy = "*"
+shapely = "*"
+numpy = "*"
+pandas = "*"
+scikit-learn = "*"
+openpyxl = "*"
+pyproj = "*"
+networkx = "*"
+
+[tool.poetry.group.dev.dependencies]
+jupyter = "*"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
