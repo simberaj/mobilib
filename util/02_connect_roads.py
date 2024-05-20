@@ -26,9 +26,13 @@ def read_splitters(source_file: os.PathLike,
             i = 0
             for feat in src:
                 geom = feat['geometry']
+                geom_lines = geom['coordinates']
+                if geom['type'] != 'MultiLineString':
+                    geom_lines = [geom_lines]
                 layer = feat['properties'].get(layer_fld, DEFAULT_LAYER)
-                endpoints.add(tuple(geom['coordinates'][0]))
-                endpoints.add(tuple(geom['coordinates'][-1]))
+                for line in geom_lines:
+                    endpoints.add(tuple(line[0]))
+                    endpoints.add(tuple(line[-1]))
                 if not endpoints_only:
                     lines.setdefault(layer, []).append(shapely.geometry.shape(geom))
                 i += 1
@@ -122,7 +126,7 @@ def split_line(feat: Dict[str, Any],
             splits = shapely.ops.split(shape, splitters[0])
         else:
             splits = shapely.ops.split(shape, shapely.geometry.MultiPoint(splitters))
-        for geom in splits:
+        for geom in splits.geoms:
             yield {
                 'type': 'Feature',
                 'geometry': shapely.geometry.mapping(geom),
@@ -138,13 +142,12 @@ def get_splitters(shape: shapely.geometry.linestring.LineString,
                   ) -> Generator[Dict[str, Any], None, None]:
     shape_checker = shapely.prepared.prep(shape)
     shape_endpoints = shape.boundary.geoms
-    splitters = endpoint_tree.query(shape)
     splitters = [
-        pt for pt in splitters
+        pt for pt in endpoint_tree.geometries.take(endpoint_tree.query(shape))
         if pt not in shape_endpoints and shape_checker.intersects(pt)
     ]
     if line_tree:
-        for line in line_tree.query(shape):
+        for line in line_tree.geometries.take(line_tree.query(shape)):
             if shape_checker.intersects(line):
                 splitters.extend(
                     pt for pt in intersection_to_points(shape.intersection(line))

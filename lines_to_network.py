@@ -17,18 +17,20 @@ def roads_to_network(source_file: os.PathLike,
                      forward_way_value: Optional[Any] = None,
                      backward_way_value: Optional[Any] = None,
                      tolerance: float = 0.,
+                     largest_component_only: bool = False,
                      ) -> None:
     if attrs and oneway_col not in attrs:
         attrs.append(oneway_col)
     gdf = gpd.read_file(source_file)
+    gdf = mobilib.routing.interconnect(gdf)
     network = mobilib.routing.from_lines(gdf, attrs, tolerance)
     mobilib.routing.fix_orientation(
         network, oneway_col, forward_way_value, backward_way_value
     )
-    mobilib.routing.to_lines(
-        mobilib.routing.largest_component(network),
-        gdf.crs
-    ).to_file(os.fspath(target_file))
+    if largest_component_only:
+        network = mobilib.routing.largest_component(network)
+    line_gdf = mobilib.routing.to_lines(network, gdf.crs)
+    line_gdf.to_file(os.fspath(target_file))
 
 
 parser = mobilib.argparser.default(__doc__)
@@ -65,6 +67,11 @@ parser.add_argument(
     '-t', '--tolerance', type=float, default=0.001,
     help='geometry tolerance for node snapping'
 )
+parser.add_argument(
+    '-l', '--largest-component-only',
+    help='oneway street attribute name, will be used to determine edge'
+         ' directions and dropped'
+)
 
 
 if __name__ == '__main__':
@@ -77,4 +84,5 @@ if __name__ == '__main__':
         args.forward_way_value,
         args.reverse_way_value,
         args.tolerance,
+        args.largest_component_only,
     )

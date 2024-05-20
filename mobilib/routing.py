@@ -13,13 +13,14 @@ import shapely.strtree
 class RouteFinder:
     def __init__(self,
                  line_gdf: gpd.GeoDataFrame,
-                 attrs: List[str] = [],
+                 attrs: Optional[List[str]] = None,
                  tolerance: float = .001,
                  max_match_distance: float = np.inf,
                  base_line_search_distance: float = 25.,
                  base_point_search_distance: float = .1,
+                 directed: bool = True,
                  ):
-        self.network = from_lines(line_gdf, attrs=attrs, tolerance=tolerance)
+        self.network = from_lines(line_gdf, attrs=attrs, tolerance=tolerance, directed=directed)
         self.line_tree = nearest_search_tree(
             line_gdf.geometry,
             base_search_distance=base_line_search_distance,
@@ -33,7 +34,7 @@ class RouteFinder:
     def cost(self,
              from_node: Tuple[float, float],
              to_node: Tuple[float, float],
-             attr: str,
+             attr: str = "length",
              ) -> Union[None, float]:
         try:
             return nx.shortest_path_length(
@@ -51,7 +52,7 @@ class RouteFinder:
         nodes = []
         added_edges = []
         for point in points:
-            match_line = self.line_tree.nearest(point)
+            match_line = self.line_tree.geometries.take(self.line_tree.nearest(point))
             distance = point.distance(match_line)
             if distance > self.max_match_distance:
                 nodes.append(None)
@@ -59,7 +60,7 @@ class RouteFinder:
                 # get nodes to which this line is connected to
                 added_node = tuple(point.coords[0])
                 from_node, to_node = [
-                    tuple(self.node_tree.nearest(pt).coords[0])
+                    tuple(self.node_tree.geometries.take(self.node_tree.nearest(pt)).coords[0])
                     for pt in match_line.boundary.geoms
                 ]
                 nodes.append(added_node)
@@ -146,11 +147,15 @@ def reversed_edge_attrs(attrs: Dict[str, Any]) -> Dict[str, Any]:
 def from_lines(gdf: gpd.GeoDataFrame,
                attrs: List[str] = [],
                tolerance: float = .001,
-               ) -> nx.DiGraph:
-    if attrs:
-        gdf.drop(
+               directed: bool = True,
+               ) -> Union[nx.Graph, nx.DiGraph]:
+    gdf = gdf.explode(index_parts=True)
+    if attrs is None:
+        gdf = gdf[["geometry"]].assign(length=gdf.geometry.length)
+    else:
+        gdf = gdf.drop(
             [col for col in gdf.columns if col not in attrs and col != 'geometry'],
-            inplace=True, axis=1,
+            axis=1,
         )
     gdf['_source'] = gdf.geometry.map(lambda geom: geom.coords[0])
     gdf['_target'] = gdf.geometry.map(lambda geom: geom.coords[-1])
@@ -161,11 +166,11 @@ def from_lines(gdf: gpd.GeoDataFrame,
         gdf['_source'] = gdf['_source'].map(rounder)
         gdf['_target'] = gdf['_target'].map(rounder)
     return nx.from_pandas_edgelist(
-        gdf, '_source', '_target', edge_attr=True, create_using=nx.DiGraph
+        gdf, '_source', '_target', edge_attr=True, create_using=(nx.DiGraph if directed else nx.Graph)
     )
 
 
-def to_lines(graph: nx.DiGraph,
+def to_lines(graph: Union[nx.Graph, nx.DiGraph],
              crsdef: Dict[str, Any],
              ) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(
@@ -222,4 +227,3 @@ def largest_component(graph: nx.DiGraph) -> nx.DiGraph:
     return graph.subgraph(max(
         nx.weakly_connected_components(graph), key=len
     ))
-
